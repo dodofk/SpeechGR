@@ -46,6 +46,10 @@ class RunArguments:
     run_notes: str = field(default="")
     code_path: str = field(default="/home/ricky/dodofk/dataset/slue_sqa_code_c512")
     dataset_path: str = field(default="/home/ricky/dodofk/dataset/slue_sqa5/")
+    run_notes: str = field(default="")
+    special_token: Optional[int] = field(default=32000)
+    discrete_code_num: Optional[int] = field(default=500)
+    code_path: Optional[str] = field(default="/home/ricky/dodofk/dataset/slue_sqa_code_c512")
 
 
 def make_compute_metrics(tokenizer, valid_ids):
@@ -169,6 +173,8 @@ def main():
         model_name_or_path=run_args.model_name,
         code_path=run_args.code_path,
         dataset_path=run_args.dataset_path,
+        special_token=run_args.special_token,
+        discrete_code_num=run_args.discrete_code_num,
     )
     
     valid_dataset = SlueSQA5DatasetV2(
@@ -177,7 +183,17 @@ def main():
         model_name_or_path=run_args.model_name,
         code_path=run_args.code_path,
         dataset_path=run_args.dataset_path,
+        special_token=run_args.special_token,
+        discrete_code_num=run_args.discrete_code_num,
     )
+    
+    # test_dataset = SlueSQA5DatasetV2(
+    #     split="test",
+    #     max_length=run_args.max_length,
+    #     model_name_or_path=run_args.model_name,
+    #     code_path=run_args.code_path,
+    #     dataset_path=run_args.dataset_path,
+    # )
 
     restrict_decode_vocab = RestrictDecodeVocab(
         valid_ids=train_dataset.valid_ids,

@@ -211,6 +211,7 @@ class SlueSQA5DatasetV2(Dataset):
         epoch: Optional[int] = None,
         discrete_code_num: int = 128,
         truncate_offset: int = 50,
+        special_token: int = 32000, # specific the special token to use for query task
     ):
         assert split in [
             "train",
@@ -227,7 +228,7 @@ class SlueSQA5DatasetV2(Dataset):
         self.truncate_offset = truncate_offset
         self.split = split
         self.code_path = code_path
-
+        self.special_token = special_token
         # Load pq data used to build a mapping from document_id to a unique identifier
         self.corpus_data = pd.read_csv(os.path.join(dataset_path, corpus_filename))
         # pq_data only used for build up document id to index mapping
@@ -331,7 +332,7 @@ class SlueSQA5DatasetV2(Dataset):
             # Map original codes to discrete codes via our lookup mapping
             code = np.vectorize(self.code_to_idx.get)(code)
             code = np.concatenate(
-                [[32000], code, [1]]
+                [[self.special_token], code, [1]]
             )  # Append EOS token (assumed token id 1) # pick token 32000 as an indicate to query task (which is added token for flan t5)
             if len(code) > self.max_length:
                 # print("Code length is too long, need to be truncated ===========")

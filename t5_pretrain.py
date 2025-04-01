@@ -19,6 +19,9 @@ from transformers import (
     HfArgumentParser,
 )
 import wandb
+import glob
+import os
+import numpy as np
 
 # Set up logging.
 logging.basicConfig(level=logging.INFO)
@@ -28,21 +31,22 @@ logger = logging.getLogger(__name__)
 # Helper Function: T5-Style Span Masking
 #############################################
 
+
 def random_spans_noise_masking(
     token_ids: Union[List[int], torch.Tensor],
     mask_prob: float = 0.15,
     mean_span_length: int = 3,
-    sentinel_start_id: int = 32000
+    sentinel_start_id: int = 32000,
 ) -> Tuple[List[int], List[int]]:
     """
     Applies T5-style span masking to a sequence of token IDs.
-    
+
     Args:
         token_ids (list or torch.Tensor): The original token sequence.
         mask_prob (float): Fraction of tokens to mask.
         mean_span_length (int): Average length of each masked span.
         sentinel_start_id (int): The starting ID for the extra/sentinel tokens.
-        
+
     Returns:
         masked_input_ids (list): Token sequence with masked spans replaced by sentinel tokens.
         labels (list): Sequence with the masked spans (preceded by their sentinel tokens)
@@ -59,7 +63,9 @@ def random_spans_noise_masking(
     spans: List[int] = []
     remaining_to_mask: int = num_to_mask
     while remaining_to_mask > 0:
-        current_span_len: int = min(random.randint(1, mean_span_length * 2), remaining_to_mask)
+        current_span_len: int = min(
+            random.randint(1, mean_span_length * 2), remaining_to_mask
+        )
         spans.append(current_span_len)
         remaining_to_mask -= current_span_len
 
@@ -101,15 +107,18 @@ def random_spans_noise_masking(
 
     return masked_input_ids, labels
 
+
 #############################################
 # Data Collator with T5 Span Masking
 #############################################
+
 
 class DataCollatorForT5SpanCorruption(DataCollatorForSeq2Seq):
     """
     Custom data collator that applies T5-style random span masking on the fly.
     Assumes each example is a dict with key "input_ids" (a list of token IDs).
     """
+
     def __init__(
         self,
         tokenizer: T5Tokenizer,
@@ -134,19 +143,45 @@ class DataCollatorForT5SpanCorruption(DataCollatorForSeq2Seq):
                 mean_span_length=self.mean_span_length,
                 sentinel_start_id=self.sentinel_start_id,
             )
-            new_features.append({
-                "input_ids": masked_input_ids,
-                "labels": labels,
-            })
+            new_features.append(
+                {
+                    "input_ids": masked_input_ids,
+                    "labels": labels,
+                }
+            )
         batch: Dict[str, Any] = super().__call__(new_features)
         return batch
+
 
 #############################################
 # Dummy Dataset (Replace with Your Own)
 #############################################
 
+
+class DiscreteCodeDataset(Dataset):
+    """
+    This data is used for all kinds of dataset to load all the code.
+    """
+
+    def __init__(
+        self,
+        max_length: int = 512,
+        code_dir: str = "/home/ricky/dodofk/dataset/medium",
+        discrete_code_num: int = 500,
+    ):
+        self.discrete_code_num: int = discrete_code_num
+        self.code_dir: str = code_dir
+        self.max_length: int = max_length
+        self.code_files: List[str] = glob.glob(os.path.join(code_dir, "*.code"))
+
+    def __len__(self) -> int:
+        return len(self.code_files)
+
+
 class DummyDataset(Dataset):
-    def __init__(self, tokenizer: T5Tokenizer, num_samples: int = 1000, seq_length: int = 512) -> None:
+    def __init__(
+        self, tokenizer: T5Tokenizer, num_samples: int = 1000, seq_length: int = 512
+    ) -> None:
         self.tokenizer: T5Tokenizer = tokenizer
         self.num_samples: int = num_samples
         self.seq_length: int = seq_length
@@ -156,27 +191,37 @@ class DummyDataset(Dataset):
 
     def __getitem__(self, idx: int) -> Dict[str, Any]:
         # Create a dummy sequence by sampling random token IDs.
-        token_ids: List[int] = [random.randint(0, self.tokenizer.vocab_size - 1) for _ in range(self.seq_length)]
+        token_ids: List[int] = [
+            random.randint(0, self.tokenizer.vocab_size - 1)
+            for _ in range(self.seq_length)
+        ]
         return {"input_ids": token_ids}
+
 
 #############################################
 # Dataclass Arguments
 #############################################
 
+
 @dataclass
 class ModelArguments:
     model_name_or_path: str = field(
-        default="google/flan-t5-base", 
-        metadata={"help": "Path to the pretrained model or model identifier from huggingface.co/models"}
+        default="google/flan-t5-base",
+        metadata={
+            "help": "Path to the pretrained model or model identifier from huggingface.co/models"
+        },
     )
     sentinel_start_id: int = field(
         default=32000,
-        metadata={"help": "Starting ID for extra/sentinel tokens (e.g. T5 extra tokens)"}
+        metadata={
+            "help": "Starting ID for extra/sentinel tokens (e.g. T5 extra tokens)"
+        },
     )
     final_model_dir: str = field(
         default="flan_t5_span_masking_final",
-        metadata={"help": "Directory to save the final model checkpoint"}
+        metadata={"help": "Directory to save the final model checkpoint"},
     )
+
 
 @dataclass
 class DataTrainingArguments:
@@ -190,34 +235,37 @@ class DataTrainingArguments:
         default=3, metadata={"help": "Mean span length for T5 span corruption"}
     )
     train_samples: int = field(
-        default=1000, metadata={"help": "Number of training samples in the dummy dataset"}
+        default=1000,
+        metadata={"help": "Number of training samples in the dummy dataset"},
     )
     eval_samples: int = field(
-        default=100, metadata={"help": "Number of evaluation samples in the dummy dataset"}
+        default=100,
+        metadata={"help": "Number of evaluation samples in the dummy dataset"},
     )
+
 
 @dataclass
 class WandBArguments:
     project: str = field(
         default="t5-span-masking", metadata={"help": "WandB project name"}
     )
-    entity: Optional[str] = field(
-        default=None, metadata={"help": "WandB entity/username if needed"}
-    )
-    endpoint: Optional[str] = field(
-        default=None, metadata={"help": "WandB API endpoint (if using a custom endpoint)"}
-    )
     description: Optional[str] = field(
         default=None, metadata={"help": "Project description/notes for WandB"}
     )
+
 
 #############################################
 # Main Training Script
 #############################################
 
+
 def main() -> None:
-    parser = HfArgumentParser((ModelArguments, DataTrainingArguments, WandBArguments, TrainingArguments))
-    model_args, data_args, wandb_args, training_args = parser.parse_args_into_dataclasses()
+    parser = HfArgumentParser(
+        (ModelArguments, DataTrainingArguments, WandBArguments, TrainingArguments)
+    )
+    model_args, data_args, wandb_args, training_args = (
+        parser.parse_args_into_dataclasses()
+    )
 
     # Ensure wandb is used for logging.
     if not training_args.report_to or len(training_args.report_to) == 0:
@@ -228,10 +276,6 @@ def main() -> None:
         "project": wandb_args.project,
         "config": training_args.to_dict(),
     }
-    if wandb_args.entity is not None:
-        wandb_init_args["entity"] = wandb_args.entity
-    if wandb_args.endpoint is not None:
-        wandb_init_args["base_url"] = wandb_args.endpoint
     if wandb_args.description is not None:
         wandb_init_args["notes"] = wandb_args.description
 
@@ -280,6 +324,7 @@ def main() -> None:
     # 7. Save the final model checkpoint to the specified directory.
     trainer.save_model(model_args.final_model_dir)
     wandb.finish()
+
 
 if __name__ == "__main__":
     main()
