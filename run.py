@@ -1,9 +1,5 @@
 from data import (
-    IndexingTrainDataset,
-    GenerateDataset,
     IndexingCollator,
-    QueryEvalCollator,
-    SlueSQA5Dataset,
     SlueSQA5DatasetV2,
 )
 
@@ -44,9 +40,6 @@ class RunArguments:
     model_path: Optional[str] = field(default=None)
     max_length: Optional[int] = field(default=32)
     id_max_length: Optional[int] = field(default=64)
-    remove_prompt: Optional[bool] = field(default=False)
-    train_file: str = field(default=None)
-    valid_file: str = field(default=None)
     top_k: Optional[int] = field(default=10)
     num_return_sequences: Optional[int] = field(default=10)
     q_max_length: Optional[int] = field(default=32)

@@ -21,8 +21,6 @@ python3 run.py \
     --model_name "google/flan-t5-base" \
     --run_name "slue_sqa5-flan-t5-base-DSI-QG-q&d-both-du-l7-c500" \
     --max_length 512 \
-    --train_file data/msmarco_data/100k/msmarco_corpus.tsv.q10.docTquery \
-    --valid_file data/msmarco_data/100k/msmarco_DSI_dev_data.json \
     --output_dir "models/slue_sqa5-flan-t5-base-DSI-QG-q&d-both-du-l7-c500" \
     --learning_rate 0.0001 \
     --warmup_steps 10000 \
@@ -42,7 +40,6 @@ python3 run.py \
     --dataloader_drop_last False \
     --metric_for_best_model Hits@20 \
     --greater_is_better True \
-    --remove_prompt True \
     --save_safetensors True \
     --run_note "fine-tune on flan t5 with 500 cluster discrete unit on layer 7" \
     --code_path "/home/ricky/dodofk/dataset/slue_sqa_code_l7_c500" \
