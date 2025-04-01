@@ -47,11 +47,9 @@ class RunArguments:
     remove_prompt: Optional[bool] = field(default=False)
     train_file: str = field(default=None)
     valid_file: str = field(default=None)
-    task: str = field(default=None, metadata={"help": "DSI, docTquery, generation"})
     top_k: Optional[int] = field(default=10)
     num_return_sequences: Optional[int] = field(default=10)
     q_max_length: Optional[int] = field(default=32)
-    dataset_name: Optional[str] = field(default="slue_sqa5")
     run_notes: str = field(default="")
     code_path: str = field(default="/home/ricky/dodofk/dataset/slue_sqa_code_c512")
     dataset_path: str = field(default="/home/ricky/dodofk/dataset/slue_sqa5/")
@@ -172,46 +170,45 @@ def main():
                 run_args.model_name, cache_dir="cache"
             )
 
-    if run_args.dataset_name == "slue_sqa5" and run_args.task == "DSI":
-        train_dataset = SlueSQA5DatasetV2(
-            split="train",
-            max_length=run_args.max_length,
-            model_name_or_path=run_args.model_name,
-            code_path=run_args.code_path,
-            dataset_path=run_args.dataset_path,
-        )
-        
-        valid_dataset = SlueSQA5DatasetV2(
-            split="validation",
-            max_length=run_args.max_length,
-            model_name_or_path=run_args.model_name,
-            code_path=run_args.code_path,
-            dataset_path=run_args.dataset_path,
-        )
+    train_dataset = SlueSQA5DatasetV2(
+        split="train",
+        max_length=run_args.max_length,
+        model_name_or_path=run_args.model_name,
+        code_path=run_args.code_path,
+        dataset_path=run_args.dataset_path,
+    )
+    
+    valid_dataset = SlueSQA5DatasetV2(
+        split="validation",
+        max_length=run_args.max_length,
+        model_name_or_path=run_args.model_name,
+        code_path=run_args.code_path,
+        dataset_path=run_args.dataset_path,
+    )
 
-        restrict_decode_vocab = RestrictDecodeVocab(
-            valid_ids=train_dataset.valid_ids,
-            tokenizer=tokenizer
-        )
-        
-        trainer = DSITrainer(
-            model=model,
-            tokenizer=tokenizer,
-            args=training_args,
-            train_dataset=train_dataset,
-            eval_dataset=valid_dataset,
-            data_collator=IndexingCollator(
-                tokenizer,
-                padding="longest",
-            ),
-            compute_metrics=make_compute_metrics(
-                fast_tokenizer, train_dataset.valid_ids
-            ),
-            id_max_length=run_args.id_max_length,
-            restrict_decode_vocab=restrict_decode_vocab,
-        )
+    restrict_decode_vocab = RestrictDecodeVocab(
+        valid_ids=train_dataset.valid_ids,
+        tokenizer=tokenizer
+    )
+    
+    trainer = DSITrainer(
+        model=model,
+        tokenizer=tokenizer,
+        args=training_args,
+        train_dataset=train_dataset,
+        eval_dataset=valid_dataset,
+        data_collator=IndexingCollator(
+            tokenizer,
+            padding="longest",
+        ),
+        compute_metrics=make_compute_metrics(
+            fast_tokenizer, train_dataset.valid_ids
+        ),
+        id_max_length=run_args.id_max_length,
+        restrict_decode_vocab=restrict_decode_vocab,
+    )
 
-        trainer.train()
+    trainer.train()
 
 
 if __name__ == "__main__":

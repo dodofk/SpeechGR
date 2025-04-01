@@ -18,7 +18,6 @@ python speech-content-encoder/S2U.py \
 
 # echo "Step 2: Running DSI model training with run.py"
 python3 run.py \
-    --task "DSI" \
     --model_name "google/flan-t5-base" \
     --run_name "slue_sqa5-flan-t5-base-DSI-QG-q&d-both-du-l7-c500" \
     --max_length 512 \
@@ -45,7 +44,6 @@ python3 run.py \
     --greater_is_better True \
     --remove_prompt True \
     --save_safetensors True \
-    --dataset_name "slue_sqa5" \
     --run_note "fine-tune on flan t5 with 500 cluster discrete unit on layer 7" \
     --code_path "/home/ricky/dodofk/dataset/slue_sqa_code_l7_c500" \
     --discrete_code_num 500 
