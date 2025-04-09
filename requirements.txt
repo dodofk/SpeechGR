@@ -9,4 +9,5 @@ sentencepiece
 transformers==4.44.2
 datasets
 accelerate
-
+librosa
+soundfile

@@ -4,6 +4,7 @@ This code is used to pretrain a T5 model on our spoken discrete unit.
 
 Author: Ricky Liu
 """
+import math
 import random
 import torch
 import logging
@@ -22,6 +23,7 @@ import wandb
 import glob
 import os
 import numpy as np
+from tqdm import tqdm
 
 # Set up logging.
 logging.basicConfig(level=logging.INFO)
@@ -95,6 +97,8 @@ def random_spans_noise_masking(
         labels.append(current_sentinel_id)
         for i in range(span_length):
             masked_idx: int = span_start + i
+            if masked_idx >= num_tokens:
+                break
             labels.append(token_ids[masked_idx])
         current_sentinel_id += 1
         current_pos = span_start + span_length
@@ -145,8 +149,8 @@ class DataCollatorForT5SpanCorruption(DataCollatorForSeq2Seq):
             )
             new_features.append(
                 {
-                    "input_ids": masked_input_ids,
-                    "labels": labels,
+                    "input_ids": torch.LongTensor(masked_input_ids),
+                    "labels": torch.LongTensor(labels),
                 }
             )
         batch: Dict[str, Any] = super().__call__(new_features)
@@ -166,37 +170,67 @@ class DiscreteCodeDataset(Dataset):
     def __init__(
         self,
         max_length: int = 512,
-        code_dir: str = "/home/ricky/dodofk/dataset/medium",
+        chunk_offset: int = 20,
+        code_dir: str = "/home/ricky/dodofk/dataset/ll6k_code_l22_c500",
         discrete_code_num: int = 500,
+        split: str = "train",
+        token_file: str = "/home/ricky/dodofk/dataset/slue_sqa5/flan-t5-base-unused_tokens.txt",
     ):
         self.discrete_code_num: int = discrete_code_num
         self.code_dir: str = code_dir
         self.max_length: int = max_length
         self.code_files: List[str] = glob.glob(os.path.join(code_dir, "*.code"))
+        self.code_files = sorted(self.code_files)  # sort to make it deterministic 
+        # debug only to keep the code small
+        self.chunk_offset: int = chunk_offset
+        
+        assert split in ["train", "val"], "split must be either train or val"
+        self.split = split
+        self.code_lookup = np.loadtxt(token_file, dtype=int)
+        
+        
+        # preprocess the codes
+        self.codes: List[np.ndarray] = self.build_codes()
+    
+
+    def build_codes(self) -> List[np.ndarray]:
+        codes: List[np.ndarray] = []
+        for file in tqdm(self.code_files, desc=f"Building codes for {self.split} set"):
+            code_cnt = np.loadtxt(
+                file,
+                dtype=int,
+            )
+            
+            # split the code into chunks
+            code, _ = code_cnt[0], code_cnt[1]
+            
+            # convert code to tokens
+            code = np.array([self.code_lookup[c] for c in code])
+            
+            stride = self.max_length - self.chunk_offset
+            if len(code) < self.max_length:
+                codes.append(code)
+            else:
+                for i in range(0, len(code), stride):
+                    if i + self.max_length > len(code):
+                        codes.append(code[i:])
+                    else:
+                        codes.append(code[i:i+self.max_length])
+                  
+        if self.split == "train":
+            logging.info(f"Training set size: {int(0.92 * len(codes))}")
+            return codes[:int(0.92 * len(codes))]
+        else: # left 8% for validation
+            logging.info(f"Validation set size: {len(codes) - int(0.92 * len(codes))}")
+            return codes[int(0.92 * len(codes)):]
 
     def __len__(self) -> int:
-        return len(self.code_files)
-
-
-class DummyDataset(Dataset):
-    def __init__(
-        self, tokenizer: T5Tokenizer, num_samples: int = 1000, seq_length: int = 512
-    ) -> None:
-        self.tokenizer: T5Tokenizer = tokenizer
-        self.num_samples: int = num_samples
-        self.seq_length: int = seq_length
-
-    def __len__(self) -> int:
-        return self.num_samples
-
+        return len(self.codes)
+    
     def __getitem__(self, idx: int) -> Dict[str, Any]:
-        # Create a dummy sequence by sampling random token IDs.
-        token_ids: List[int] = [
-            random.randint(0, self.tokenizer.vocab_size - 1)
-            for _ in range(self.seq_length)
-        ]
-        return {"input_ids": token_ids}
-
+        return {
+            "input_ids": self.codes[idx],
+        }
 
 #############################################
 # Dataclass Arguments
@@ -212,7 +246,7 @@ class ModelArguments:
         },
     )
     sentinel_start_id: int = field(
-        default=32000,
+        default=32001,
         metadata={
             "help": "Starting ID for extra/sentinel tokens (e.g. T5 extra tokens)"
         },
@@ -229,10 +263,10 @@ class DataTrainingArguments:
         default=512, metadata={"help": "Input sequence length for training examples"}
     )
     mask_prob: float = field(
-        default=0.15, metadata={"help": "Masking probability for T5 span corruption"}
+        default=0.2, metadata={"help": "Masking probability for T5 span corruption"}
     )
     mean_span_length: int = field(
-        default=3, metadata={"help": "Mean span length for T5 span corruption"}
+        default=5, metadata={"help": "Mean span length for T5 span corruption"}
     )
     train_samples: int = field(
         default=1000,
@@ -241,6 +275,16 @@ class DataTrainingArguments:
     eval_samples: int = field(
         default=100,
         metadata={"help": "Number of evaluation samples in the dummy dataset"},
+    )
+    chunk_offset: int = field(
+        default=20, metadata={"help": "Chunk offset for the code dataset"},
+    )
+    code_dir: str = field(
+        default="/home/ricky/dodofk/dataset/ll6k_code_l22_c500",
+        metadata={"help": "Directory to the code dataset"},
+    )
+    discrete_code_num: int = field(
+        default=500, metadata={"help": "Number of discrete code in the dataset"},
     )
 
 
@@ -293,11 +337,20 @@ def main() -> None:
     # model.resize_token_embeddings(len(tokenizer))
 
     # 3. Create training and evaluation datasets.
-    train_dataset = DummyDataset(
-        tokenizer, num_samples=data_args.train_samples, seq_length=data_args.seq_length
+    logging.info("Create training and evaluation datasets")
+    train_dataset = DiscreteCodeDataset(
+        max_length=data_args.seq_length,
+        chunk_offset=data_args.chunk_offset,
+        code_dir=data_args.code_dir,
+        discrete_code_num=data_args.discrete_code_num,
+        split="train",
     )
-    eval_dataset = DummyDataset(
-        tokenizer, num_samples=data_args.eval_samples, seq_length=data_args.seq_length
+    eval_dataset = DiscreteCodeDataset(
+        max_length=data_args.seq_length,
+        chunk_offset=data_args.chunk_offset,
+        code_dir=data_args.code_dir,
+        discrete_code_num=data_args.discrete_code_num,
+        split="val",
     )
 
     # 4. Create the custom data collator.
@@ -309,6 +362,7 @@ def main() -> None:
         sentinel_start_id=model_args.sentinel_start_id,
     )
 
+    logging.info("Set up the trainer")
     # 5. Initialize the Trainer.
     trainer = Trainer(
         model=model,
@@ -318,6 +372,7 @@ def main() -> None:
         data_collator=data_collator,
     )
 
+    logging.info("Start training")
     # 6. Start training.
     trainer.train()
 

@@ -228,6 +228,10 @@ def process_librispeech(config: Config, extractor, apply_kmeans: ApplyKmeans):
 
     for flac_file in tqdm(flac_files, desc="Processing LibriSpeech dataset"):
         flac_fname = os.path.basename(flac_file)
+        
+        if os.path.exists(os.path.join(config.output_dir, f"{flac_fname}.code")):
+            continue
+        
         wav, sr = torchaudio.load(flac_file)
         if sr != config.sample_rate:
             wav = torchaudio.transforms.Resample(sr, config.sample_rate)(wav)
