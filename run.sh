@@ -43,5 +43,6 @@ python3 run.py \
     --save_safetensors True \
     --run_note "fine-tune on flan t5 with 500 cluster discrete unit on layer 7" \
     --code_path "/home/ricky/dodofk/dataset/slue_sqa_code_l7_c500" \
-    --discrete_code_num 500 
+    --discrete_code_num 500 \
+    --lookup_file_name "/home/ricky/dodofk/dataset/slue_sqa5/flan-t5-base-unused_tokens.txt"
 # echo "Execution completed successfully!"

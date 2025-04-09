@@ -50,6 +50,7 @@ class RunArguments:
     special_token: Optional[int] = field(default=32000)
     discrete_code_num: Optional[int] = field(default=500)
     code_path: Optional[str] = field(default="/home/ricky/dodofk/dataset/slue_sqa_code_c512")
+    lookup_file_name: Optional[str] = field(default=None)
 
 
 def make_compute_metrics(tokenizer, valid_ids):
@@ -175,6 +176,7 @@ def main():
         dataset_path=run_args.dataset_path,
         special_token=run_args.special_token,
         discrete_code_num=run_args.discrete_code_num,
+        lookup_file_name=run_args.lookup_file_name,
     )
     
     valid_dataset = SlueSQA5DatasetV2(
@@ -185,6 +187,7 @@ def main():
         dataset_path=run_args.dataset_path,
         special_token=run_args.special_token,
         discrete_code_num=run_args.discrete_code_num,
+        lookup_file_name=run_args.lookup_file_name,
     )
     
     # test_dataset = SlueSQA5DatasetV2(

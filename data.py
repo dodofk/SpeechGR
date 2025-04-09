@@ -212,6 +212,7 @@ class SlueSQA5DatasetV2(Dataset):
         discrete_code_num: int = 128,
         truncate_offset: int = 50,
         special_token: int = 32000, # specific the special token to use for query task
+        lookup_file_name: Optional[str] = None,
     ):
         assert split in [
             "train",
@@ -229,6 +230,7 @@ class SlueSQA5DatasetV2(Dataset):
         self.split = split
         self.code_path = code_path
         self.special_token = special_token
+        self.lookup_file_name = lookup_file_name
         # Load pq data used to build a mapping from document_id to a unique identifier
         self.corpus_data = pd.read_csv(os.path.join(dataset_path, corpus_filename))
         # pq_data only used for build up document id to index mapping
@@ -268,20 +270,27 @@ class SlueSQA5DatasetV2(Dataset):
         Build a discrete code lookup based on the post-query text from pq data.
         This reuses logic from the original SlueSQA5Dataset.
         """
-        corpus = self.pq_data["post_query"].tolist()
-        all_set = set(list(range(self.tokenizer.vocab_size)))
-        used_set = set()
-        for c in corpus:
-            for t in self.tokenizer(c)["input_ids"]:
-                used_set.add(t)
-        unused_tokens = sorted(list(all_set - used_set))
-        # Remove tokens < 20 to avoid special tokens
-        unused_tokens = [t for t in unused_tokens if t >= 20]
-        # Use the first N tokens as discrete code lookup
-        self.discrete_code_lookup = unused_tokens[: self.discrete_code_num]
-        self.code_to_idx = {
-            idx: code for idx, code in enumerate(self.discrete_code_lookup)
-        }
+        if self.lookup_file_name:
+            lookup = np.loadtxt(self.lookup_file_name).astype(int)
+            self.discrete_code_lookup = lookup
+            self.code_to_idx = {
+                idx: code for idx, code in enumerate(self.discrete_code_lookup)
+            }    
+        else: 
+            corpus = self.pq_data["post_query"].tolist()
+            all_set = set(list(range(self.tokenizer.vocab_size)))
+            used_set = set()
+            for c in corpus:
+                for t in self.tokenizer(c)["input_ids"]:
+                    used_set.add(t)
+            unused_tokens = sorted(list(all_set - used_set))
+            # Remove tokens < 20 to avoid special tokens
+            unused_tokens = [t for t in unused_tokens if t >= 20]
+            # Use the first N tokens as discrete code lookup
+            self.discrete_code_lookup = unused_tokens[: self.discrete_code_num]
+            self.code_to_idx = {
+                idx: code for idx, code in enumerate(self.discrete_code_lookup)
+            }
         
     def build_corpus_code(self) -> Tuple[List[torch.LongTensor], List[str]]:
         # load train corpus data
