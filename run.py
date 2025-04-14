@@ -16,9 +16,7 @@ from transformers import (
     MT5ForConditionalGeneration,
     HfArgumentParser,
     set_seed,
-    LlamaTokenizer,
-    LlamaForCausalLM,
-    TrainerCallback,
+    AutoTokenizer,
 )
 
 from trainer import DSITrainer, DocTqueryTrainer
@@ -30,6 +28,7 @@ from dataclasses import dataclass, field
 from typing import Optional, List
 import json
 from tqdm import tqdm
+from model import ContinousEmbT5
 
 set_seed(42)
 
@@ -39,7 +38,7 @@ class RunArguments:
     model_name: str = field(default=None)
     model_path: Optional[str] = field(default=None)
     max_length: Optional[int] = field(default=32)
-    id_max_length: Optional[int] = field(default=64)
+    id_max_length: Optional[int] = field(default=128)
     top_k: Optional[int] = field(default=10)
     num_return_sequences: Optional[int] = field(default=10)
     q_max_length: Optional[int] = field(default=32)
@@ -49,9 +48,15 @@ class RunArguments:
     run_notes: str = field(default="")
     special_token: Optional[int] = field(default=32000)
     discrete_code_num: Optional[int] = field(default=500)
-    code_path: Optional[str] = field(default="/home/ricky/dodofk/dataset/slue_sqa_code_c512")
+    code_path: Optional[str] = field(
+        default="/home/ricky/dodofk/dataset/slue_sqa_code_c512"
+    )
     lookup_file_name: Optional[str] = field(default=None)
-
+    train_continuous_embedding: Optional[bool] = field(default=False)
+    downsample_factor: int = field(default=2)
+    ssl_feat_dim: int = field(default=1024) # should manually maintain both dim
+    hidden_dim: int = field(default=768)
+    
 
 def make_compute_metrics(tokenizer, valid_ids):
     def compute_metrics(eval_preds):
@@ -86,23 +91,33 @@ def make_compute_metrics(tokenizer, valid_ids):
             json.dump(metrics, f, indent=4)
 
         # Create a WandB artifact and add the JSON file.
-        artifact = wandb.Artifact("eval_results", type="evaluation", description="Evaluation results")
+        artifact = wandb.Artifact(
+            "eval_results", type="evaluation", description="Evaluation results"
+        )
         artifact.add_file("eval_results.json")
         wandb.log_artifact(artifact)
 
         # Also save the raw predictions and label_ids.
         raw_data = {
-            "predictions": (eval_preds.predictions.tolist() if isinstance(eval_preds.predictions, np.ndarray)
-                            else eval_preds.predictions),
-            "label_ids": (eval_preds.label_ids.tolist() if isinstance(eval_preds.label_ids, np.ndarray)
-                          else eval_preds.label_ids),
+            "predictions": (
+                eval_preds.predictions.tolist()
+                if isinstance(eval_preds.predictions, np.ndarray)
+                else eval_preds.predictions
+            ),
+            "label_ids": (
+                eval_preds.label_ids.tolist()
+                if isinstance(eval_preds.label_ids, np.ndarray)
+                else eval_preds.label_ids
+            ),
         }
         with open("eval_raw.json", "w") as f:
             json.dump(raw_data, f, indent=4)
 
-        raw_artifact = wandb.Artifact("eval_raw", type="raw_data", description="Raw predictions and label ids")
+        raw_artifact = wandb.Artifact(
+            "eval_raw", type="raw_data", description="Raw predictions and label ids"
+        )
         raw_artifact.add_file("eval_raw.json")
-        wandb.log_artifact(raw_artifact) 
+        wandb.log_artifact(raw_artifact)
 
         # Also log the metrics directly to WandB dashboard.
         wandb.log(metrics)
@@ -117,30 +132,26 @@ def main():
     parser = HfArgumentParser((TrainingArguments, RunArguments))
     training_args, run_args = parser.parse_args_into_dataclasses()
 
-    # We use wandb logger: https://wandb.ai/site.
     if training_args.local_rank == 0:  # only on main process
         # Initialize wandb run
         wandb.login()
         wandb.init(project="DSI", name=training_args.run_name, notes=run_args.run_notes)
 
-    if "llama" in run_args.model_name:
-        tokenizer = LlamaTokenizer.from_pretrained(
-            run_args.model_name, cache_dir="cache"
-        )
-        fast_tokenizer = tokenizer  # Llama uses same tokenizer
+    tokenizer = AutoTokenizer.from_pretrained(run_args.model_name, cache_dir="cache")
+    fast_tokenizer = AutoTokenizer.from_pretrained(
+        run_args.model_name, cache_dir="cache"
+    )
+
+    if run_args.train_continuous_embedding:
         if run_args.model_path:
-            model = LlamaForCausalLM.from_pretrained(
-                run_args.model_path, cache_dir="cache"
+            model = ContinousEmbT5.from_pretrained(
+                run_args.model_path,
+                cache_dir="cache",
+                ssl_feat_dim=run_args.ssl_feat_dim,
+                downsample_factor=run_args.downsample_factor,
             )
-        else:
-            model = LlamaForCausalLM.from_pretrained(
-                run_args.model_name, cache_dir="cache"
-            )
+            
     elif "mt5" in run_args.model_name:
-        tokenizer = MT5Tokenizer.from_pretrained(run_args.model_name, cache_dir="cache")
-        fast_tokenizer = MT5TokenizerFast.from_pretrained(
-            run_args.model_name, cache_dir="cache"
-        )
         if run_args.model_path:
             model = MT5ForConditionalGeneration.from_pretrained(
                 run_args.model_path, cache_dir="cache"
@@ -155,14 +166,11 @@ def main():
             param.data = param.data.contiguous()
 
     else:
-        tokenizer = T5Tokenizer.from_pretrained(run_args.model_name, cache_dir="cache")
-        fast_tokenizer = T5TokenizerFast.from_pretrained(
-            run_args.model_name, cache_dir="cache"
-        )
         if run_args.model_path:
             model = T5ForConditionalGeneration.from_pretrained(
                 run_args.model_path, cache_dir="cache"
             )
+            print(f"Load with model path: {run_args.model_path}")
         else:
             model = T5ForConditionalGeneration.from_pretrained(
                 run_args.model_name, cache_dir="cache"
@@ -178,7 +186,7 @@ def main():
         discrete_code_num=run_args.discrete_code_num,
         lookup_file_name=run_args.lookup_file_name,
     )
-    
+
     valid_dataset = SlueSQA5DatasetV2(
         split="validation",
         max_length=run_args.max_length,
@@ -189,7 +197,7 @@ def main():
         discrete_code_num=run_args.discrete_code_num,
         lookup_file_name=run_args.lookup_file_name,
     )
-    
+
     # test_dataset = SlueSQA5DatasetV2(
     #     split="test",
     #     max_length=run_args.max_length,
@@ -199,10 +207,9 @@ def main():
     # )
 
     restrict_decode_vocab = RestrictDecodeVocab(
-        valid_ids=train_dataset.valid_ids,
-        tokenizer=tokenizer
+        valid_ids=train_dataset.valid_ids, tokenizer=tokenizer
     )
-    
+
     trainer = DSITrainer(
         model=model,
         tokenizer=tokenizer,
@@ -213,11 +220,10 @@ def main():
             tokenizer,
             padding="longest",
         ),
-        compute_metrics=make_compute_metrics(
-            fast_tokenizer, train_dataset.valid_ids
-        ),
+        compute_metrics=make_compute_metrics(fast_tokenizer, train_dataset.valid_ids),
         id_max_length=run_args.id_max_length,
         restrict_decode_vocab=restrict_decode_vocab,
+        train_continuous_embedding=run_args.train_continuous_embedding,
     )
 
     trainer.train()

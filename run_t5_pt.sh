@@ -9,7 +9,7 @@ python t5_pretrain.py \
   --mask_prob 0.2 \
   --mean_span_length 7 \
   --evaluation_strategy steps \
-  --eval_steps 3000 \
+  --eval_steps 10000 \
   --max_steps 500000 \
   --project "audio-t5-pretrain" \
   --description "Pretraining T5 on spoken discrete units" \
@@ -23,4 +23,5 @@ python t5_pretrain.py \
   --save_total_limit 4 \
   --bf16 \
   --report_to "wandb" \
-  --description "Pretraining T5 on spoken discrete units with 500 clusters on layer 22"
+  --description "Pretraining T5 on spoken discrete units with 500 clusters on layer 22" \
+  --model_path "ckpts/audio-t5-pt-flant5-base-c500-l22"

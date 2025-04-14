@@ -11,3 +11,4 @@ datasets
 accelerate
 librosa
 soundfile
+h5py

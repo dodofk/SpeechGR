@@ -41,7 +41,7 @@ class SlueSQA5DatasetV2(Dataset):
         epoch: Optional[int] = None,
         discrete_code_num: int = 128,
         truncate_offset: int = 50,
-        special_token: int = 32000, # specific the special token to use for query task
+        special_token: int = 32000,  # specific the special token to use for query task
         lookup_file_name: Optional[str] = None,
     ):
         assert split in [
@@ -65,7 +65,7 @@ class SlueSQA5DatasetV2(Dataset):
         self.corpus_data = pd.read_csv(os.path.join(dataset_path, corpus_filename))
         # pq_data only used for build up document id to index mapping
         pq_data = pd.read_csv(os.path.join(dataset_path, pq_filename))
-        
+
         self.pq_data = pq_data.dropna(
             subset=["post_query", "document_id"],
         )
@@ -76,24 +76,29 @@ class SlueSQA5DatasetV2(Dataset):
                 self.doc_id_2_id[row["document_id"]] = str(row["idx"])
 
         # self.valid_ids = set(self.doc_id_2_id.values())
-        
+
         # Initialize tokenizer and build a discrete code lookup (from unused tokens in pq data)
         self.tokenizer = AutoTokenizer.from_pretrained(model_name_or_path)
         self.epoch = epoch
         self.discrete_code_num = discrete_code_num
         self.build_code_lookup()
-        
+
         self.idx_len = None
         if split == "train":
-            self.corpus_code_data, self.corpus_code_label, self.corpus_doc_id = self.build_corpus_code()
+            self.corpus_code_data, self.corpus_code_label, self.corpus_doc_id = (
+                self.build_corpus_code()
+            )
         else:
             # the indexing task is only used for training
-            self.corpus_code_data, self.corpus_code_label, self.corpus_doc_id = self.build_corpus_code()
+            self.corpus_code_data, self.corpus_code_label, self.corpus_doc_id = (
+                self.build_corpus_code()
+            )
             self.corpus_code_data = []
             self.corpus_code_label = []
-            
-        self.valid_ids = list(set(self.corpus_doc_id)) # try to change numberic-id to docid
-        
+
+        self.valid_ids = list(
+            set(self.corpus_doc_id)
+        )  # try to change numberic-id to docid
 
     def build_code_lookup(self):
         """
@@ -105,8 +110,8 @@ class SlueSQA5DatasetV2(Dataset):
             self.discrete_code_lookup = lookup
             self.code_to_idx = {
                 idx: code for idx, code in enumerate(self.discrete_code_lookup)
-            }    
-        else: 
+            }
+        else:
             corpus = self.pq_data["post_query"].tolist()
             all_set = set(list(range(self.tokenizer.vocab_size)))
             used_set = set()
@@ -121,10 +126,10 @@ class SlueSQA5DatasetV2(Dataset):
             self.code_to_idx = {
                 idx: code for idx, code in enumerate(self.discrete_code_lookup)
             }
-        
+
     def build_corpus_code(self) -> Tuple[List[torch.LongTensor], List[str]]:
         # load train corpus data
-        
+
         corpus_code_data = []
         corpus_code_label = []
         corpus_doc_id = []
@@ -136,21 +141,21 @@ class SlueSQA5DatasetV2(Dataset):
             )
             code = np.loadtxt(code_file_path).astype(int)
             code = np.vectorize(self.code_to_idx.get)(code)
-            
+
             start_idx = 0
             reach_end = False
 
             while start_idx < len(code) and not reach_end:
                 end_idx = min(start_idx + self.max_length, len(code))
-                
+
                 if end_idx == len(code):
                     reach_end = True
-                
+
                 corpus_code_data.append(code[start_idx:end_idx])
                 corpus_code_label.append(self.doc_id_2_id[doc_id])
                 corpus_doc_id.append(doc_id)
                 start_idx = end_idx - self.truncate_offset
-                
+
         return corpus_code_data, corpus_code_label, corpus_doc_id
 
     def __len__(self):
@@ -164,9 +169,7 @@ class SlueSQA5DatasetV2(Dataset):
             document_id = row["document_id"]
             # Attempt to load a precomputed passage discrete code file.
             # It is assumed that such files are stored under a folder named "{split}_passage_code".
-            code_file_path = (
-                f"{self.code_path}/{self.split}_code/{question_id}.code"
-            )
+            code_file_path = f"{self.code_path}/{self.split}_code/{question_id}.code"
             code = np.loadtxt(code_file_path).astype(int)
             # Map original codes to discrete codes via our lookup mapping
             code = np.vectorize(self.code_to_idx.get)(code)
@@ -175,14 +178,14 @@ class SlueSQA5DatasetV2(Dataset):
             )  # Append EOS token (assumed token id 1) # pick token 32000 as an indicate to query task (which is added token for flan t5)
             if len(code) > self.max_length:
                 # print("Code length is too long, need to be truncated ===========")
-                code = np.concatenate([code[:self.max_length - 1], [1]])
+                code = np.concatenate([code[: self.max_length - 1], [1]])
             return torch.LongTensor(code), document_id
         else:
             # For extra PQ data (used for indexing), only used in train
             idx_adjusted = idx - self.query_len
             code = self.corpus_code_data[idx_adjusted]
             # label = self.corpus_code_label[idx_adjusted]
-            label = self.corpus_doc_id[idx_adjusted] 
+            label = self.corpus_doc_id[idx_adjusted]
             return torch.LongTensor(code), label
 
     def calculate_stat(self):
@@ -221,6 +224,25 @@ class SlueSQA5DatasetV2(Dataset):
         }
 
 
+class SlueSQA5DatasetContinuous(Dataset):
+    def __init__(
+        self,
+        split: str = "train",
+        max_length: int = 512,
+        dataset_path: str = "/home/ricky/dodofk/dataset/slue_sqa5/",
+        code_path: str = "/home/ricky/dodofk/dataset/slue_sqa_code_c512",
+        pq_filename: str = "slue_sqa5_pq10_llama32_3b_clean.csv",
+        corpus_filename: str = "slue_sqa5_corpus.csv",
+        model_name_or_path: str = "google/flan-t5-base",
+        epoch: Optional[int] = None,
+        discrete_code_num: int = 128,
+        truncate_offset: int = 50,
+        special_token: int = 32000,
+        lookup_file_name: Optional[str] = None,
+    ):
+        pass
+
+
 @dataclass
 class IndexingCollator(DataCollatorWithPadding):
     def __call__(self, features):
@@ -240,7 +262,6 @@ class IndexingCollator(DataCollatorWithPadding):
 
 if __name__ == "__main__":
 
-
     # dataset = SlueSQA5DatasetV2(split="train")
     # print("length: ", len(dataset))
     # print(dataset.__getitem__(0), "first")
@@ -252,14 +273,18 @@ if __name__ == "__main__":
     # print(dataset.__getitem__(0), "first")
     # print(dataset.__getitem__(1240), 'final')
     # print(list(dataset.valid_ids)[:20], list(dataset.valid_ids)[-20:])
-    
+
     print("test set")
     test_dataset = SlueSQA5DatasetV2(split="test")
     collator = IndexingCollator(tokenizer=test_dataset.tokenizer)
-    
+
     for batch in test_dataset:
         print(batch)
         continue
-    
+
     print("Dataset Length: ", len(test_dataset))
-    print("valid ids: ", list(test_dataset.valid_ids)[:20], list(test_dataset.valid_ids)[-20:])
+    print(
+        "valid ids: ",
+        list(test_dataset.valid_ids)[:20],
+        list(test_dataset.valid_ids)[-20:],
+    )
