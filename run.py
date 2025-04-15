@@ -198,13 +198,16 @@ def main():
         lookup_file_name=run_args.lookup_file_name,
     )
 
-    # test_dataset = SlueSQA5DatasetV2(
-    #     split="test",
-    #     max_length=run_args.max_length,
-    #     model_name_or_path=run_args.model_name,
-    #     code_path=run_args.code_path,
-    #     dataset_path=run_args.dataset_path,
-    # )
+    test_dataset = SlueSQA5DatasetV2(
+        split="test",
+        max_length=run_args.max_length,
+        model_name_or_path=run_args.model_name,
+        code_path=run_args.code_path,
+        dataset_path=run_args.dataset_path,
+        special_token=run_args.special_token,
+        discrete_code_num=run_args.discrete_code_num,
+        lookup_file_name=run_args.lookup_file_name,
+    )
 
     restrict_decode_vocab = RestrictDecodeVocab(
         valid_ids=train_dataset.valid_ids, tokenizer=tokenizer
@@ -215,7 +218,8 @@ def main():
         tokenizer=tokenizer,
         args=training_args,
         train_dataset=train_dataset,
-        eval_dataset=valid_dataset,
+        # eval_dataset=valid_dataset,
+        eval_dataset=test_dataset,
         data_collator=IndexingCollator(
             tokenizer,
             padding="longest",
