@@ -3,7 +3,6 @@ This script is used for pre-compute SSL model feature for SLUE SQA continuous GR
 
 Please manually change the output dir for your path
 """
-
 import argparse
 import logging
 import os
@@ -100,8 +99,12 @@ def apply_vad(
 ) -> np.ndarray:
     """Apply VAD to remove silent parts from audio."""
     if isinstance(audio, np.ndarray):
-        audio = torch.tensor(audio)
-
+        audio = torch.tensor(audio, dtype=torch.float32)
+    
+    # Ensure audio is 1D
+    if len(audio.shape) > 1:
+        audio = audio.squeeze()
+    
     if torch.cuda.is_available() and use_cuda:
         audio = audio.to("cuda")
 
@@ -143,8 +146,9 @@ def extract_features(
     with torch.no_grad():
         outputs = model(**inputs)
 
-    last_hidden_states = outputs.last_hidden_state.cpu().numpy()
-    return last_hidden_states
+    # Get the last hidden states and ensure it's 2D (sequence_length, hidden_size)
+    last_hidden_states = outputs.last_hidden_state.squeeze(0)  # Remove batch dimension
+    return last_hidden_states.cpu().numpy()
 
 
 def process_corpus(
@@ -165,16 +169,22 @@ def process_corpus(
     str_dtype = h5py.string_dtype(encoding="utf-8")
     vlen_float_dtype = h5py.vlen_dtype(np.float32)
 
-    corpus_id_dataset = corpus_h5_file.create_dataset(
+    corpus_h5_file.create_dataset(
         "ids",
         shape=(CORPUS_LEN,),
         dtype=str_dtype,
     )
-    corpus_feat_dataset = corpus_h5_file.create_dataset(
+    corpus_h5_file.create_dataset(
         "features",
         shape=(CORPUS_LEN,),
         dtype=vlen_float_dtype,
     )
+    corpus_h5_file.create_dataset(
+        "lengths",
+        shape=(CORPUS_LEN,),
+        dtype="int32",
+    )
+    
 
     # Load VAD model if needed
     if do_vad:
@@ -187,21 +197,26 @@ def process_corpus(
                 continue
 
             corpus_set.add(data["document_id"])
-            corpus_id_dataset[cur_idx] = data["document_id"]
+            corpus_h5_file["ids"][cur_idx] = data["document_id"]
 
             corpus_wav = data["document_audio"]["array"]
 
             # Apply VAD if needed
             if do_vad:
+                
                 corpus_wav = apply_vad(
                     corpus_wav, vad_model, get_speech_timestamps, use_cuda
                 )
 
             # Extract features
             features = extract_features(corpus_wav, feature_extractor, model, use_cuda)
-
+            
+            flat_features = features.astype(np.float32).ravel()
+            
             # Save to h5 file
-            corpus_feat_dataset[cur_idx] = features
+            corpus_h5_file["features"][cur_idx] = flat_features
+            corpus_h5_file["lengths"][cur_idx] = features.shape[0]
+            
             cur_idx += 1
 
             if cur_idx == CORPUS_LEN:
@@ -228,7 +243,7 @@ def process_splits(
         vad_model, get_speech_timestamps = load_vad_model(use_cuda)
 
     str_dtype = h5py.string_dtype(encoding="utf-8")
-    vlen_float_dtype = h5py.vlen_dtype(np.float32)
+    vlen_float_dtype = h5py.vlen_dtype(np.dtype(('float32', (1024,))))
 
     for split in splits:
         logger.info(f"Processing {split} split")
@@ -248,6 +263,11 @@ def process_splits(
             shape=(len(ds[split]),),
             dtype=vlen_float_dtype,
         )
+        split_length_dataset = split_h5_file.create_dataset(
+            "lengths",
+            shape=(len(ds[split]),),
+            dtype="int32",
+        )
 
         for i, data in enumerate(tqdm(ds[split], desc=f"Processing {split} split")):
             split_id_dataset[i] = data["question_id"]
@@ -263,10 +283,12 @@ def process_splits(
 
             # Extract features
             features = extract_features(corpus_wav, feature_extractor, model, use_cuda)
+            flat_features = features.astype(np.float32).ravel()
 
             # Save to h5 file
-            split_feat_dataset[i] = features
-
+            split_feat_dataset[i] = flat_features
+            split_length_dataset[i] = features.shape[0]
+            
         split_h5_file.close()
         logger.info(f"Successfully processed {split} split with {len(ds[split])} items")
 

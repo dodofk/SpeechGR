@@ -16,6 +16,7 @@ import torch
 import pandas as pd
 import os
 from typing import Optional, Tuple, List
+import h5py
 
 
 class SlueSQA5DatasetV2(Dataset):
@@ -121,6 +122,10 @@ class SlueSQA5DatasetV2(Dataset):
             unused_tokens = sorted(list(all_set - used_set))
             # Remove tokens < 20 to avoid special tokens
             unused_tokens = [t for t in unused_tokens if t >= 20]
+            
+            if len(unused_tokens) < self.discrete_code_num:
+                raise ValueError(f"Not enough unused tokens to build a discrete code lookup. Got {len(unused_tokens)} tokens, but {self.discrete_code_num} are required.")
+            
             # Use the first N tokens as discrete code lookup
             self.discrete_code_lookup = unused_tokens[: self.discrete_code_num]
             self.code_to_idx = {
@@ -230,18 +235,97 @@ class SlueSQA5DatasetContinuous(Dataset):
         split: str = "train",
         max_length: int = 512,
         dataset_path: str = "/home/ricky/dodofk/dataset/slue_sqa5/",
-        code_path: str = "/home/ricky/dodofk/dataset/slue_sqa_code_c512",
-        pq_filename: str = "slue_sqa5_pq10_llama32_3b_clean.csv",
-        corpus_filename: str = "slue_sqa5_corpus.csv",
-        model_name_or_path: str = "google/flan-t5-base",
-        epoch: Optional[int] = None,
-        discrete_code_num: int = 128,
+        feature_path: str = "/home/ricky/dodofk/dataset/slue_sqa5_wavlm_large",
         truncate_offset: int = 50,
         special_token: int = 32000,
-        lookup_file_name: Optional[str] = None,
+        downsample_factor: int = 2,
+        offset: int = 50,
     ):
-        pass
+        """
+        The dataset is used for continuous speech DSI task.
+        """
+        assert split in ["train", "validation", "test", "verified_test"]
+        
+        self.input, self.label = [], []
+        self.max_length = max_length
+        self.truncate_offset = truncate_offset
+        self.special_token = special_token
+        
+        
+        if self.split == "train":
+            # only train data need to train with corpus
+            self._load_corpus()   
+        
+        # load split data
+        self._load_data()
+            
+    
+    def _load_data(self):
+        """
+        This function load correspond split query task data 
+        """
+        # load only train data
+        split_h5_filepath = os.path.join(self.feature_path, f"{self.split}.h5")
+        split_h5_file = h5py.File(split_h5_filepath, "r")
+        
+        self.features = split_h5_file["features"]
+        self.labels = split_h5_file["labels"]
+        
+        for feature, label in zip(self.features, self.labels):
+            feature = np.array(feature)
+            
+            self.label.append(label)
+            self.input.append(self._preprocess_query_data(feature))
+                    
+    def _load_corpus(self):
+        corpus_h5_filepath = os.path.join(self.feature_path, "slue_sqa5_corpus.h5")
+        corpus_h5_file = h5py.File(corpus_h5_filepath, "r")
+        self.corpus_ids = corpus_h5_file["ids"]
+        self.corpus_features = corpus_h5_file["features"]
+        
+        for docid, feature in zip(self.corpus_ids, self.corpus_features):
+            feature = np.array(feature)
+            
+            if len(feature) > self.max_length:
+                chunks = self._truncate_data(feature)
+                for chunk in chunks:
+                    self.input.append(chunk)
+                    self.label.append(docid)
+            else:
+                self.input.append(feature)
+                self.label.append(docid)
+    
+    def _truncate_index_data(self, feature: np.ndarray) -> List[np.ndarray]:
+        chunks = []
+        
+        start_idx, reach_end = 0, False
+        while start_idx < len(feature) and not reach_end:
+            end_idx = min(start_idx + self.max_length, len(feature))
+            if end_idx == len(feature):
+                reach_end = True
+            chunks.append(feature[start_idx:end_idx])
+            start_idx = end_idx - self.truncate_offset
+            
+        return chunks
+    
+    def _preprocess_query_data(self, feature: np.ndarray) -> List[np.ndarray]:
+        """
+        We truncate the feature to max_length - 2, and add special token and eos token to the feature.
+        
+        Do not make them to multiple chunk for simplicity.
+        """
+        feature = np.concatenate([[self.special_token], feature, [1]])
 
+        if len(feature) > self.max_length:
+            feature = np.concatenate([feature[:self.max_length - 1], [1]])
+            
+        return feature
+            
+    def __len__(self):
+        return len(self.input)
+    
+    def __getitem__(self, idx):
+        return torch.Tensor(self.input[idx]), self.label[idx]
 
 @dataclass
 class IndexingCollator(DataCollatorWithPadding):
@@ -275,16 +359,17 @@ if __name__ == "__main__":
     # print(list(dataset.valid_ids)[:20], list(dataset.valid_ids)[-20:])
 
     print("test set")
-    test_dataset = SlueSQA5DatasetV2(split="test")
+    test_dataset = SlueSQA5DatasetV2(
+        split="train",
+        code_path="/home/ricky/dodofk/dataset/slue_sqa_code_l22_c2000_bpe",
+        discrete_code_num=6000,
+    )
     collator = IndexingCollator(tokenizer=test_dataset.tokenizer)
 
-    for batch in test_dataset:
-        print(batch)
-        continue
 
-    print("Dataset Length: ", len(test_dataset))
-    print(
-        "valid ids: ",
-        list(test_dataset.valid_ids)[:20],
-        list(test_dataset.valid_ids)[-20:],
-    )
+    import time
+    start_time = time.process_time()
+    test_dataset.__getitem__(0)
+    end_time = time.process_time()
+    
+    print(f"CPU time: {end_time - start_time:.2f} seconds")

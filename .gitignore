@@ -16,3 +16,11 @@ __pycache__/
 *.log.*.*.*.*.*.*
 
 ckpts
+*.pt
+models
+speech-content-encoder/hubert_22
+speech-content-encoder/hubert_22_km_2000
+
+eval_raw.json
+eval_results.json
+cache
