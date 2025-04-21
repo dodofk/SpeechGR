@@ -17,7 +17,7 @@ import pandas as pd
 import os
 from typing import Optional, Tuple, List
 import h5py
-
+import logging
 
 class SlueSQA5DatasetV2(Dataset):
     """
@@ -178,6 +178,11 @@ class SlueSQA5DatasetV2(Dataset):
             code = np.loadtxt(code_file_path).astype(int)
             # Map original codes to discrete codes via our lookup mapping
             code = np.vectorize(self.code_to_idx.get)(code)
+            
+            if code.ndim == 0: 
+                print("Debug: code is a scalar for question_id: ", question_id, " document_id: ", document_id, "="*10)
+                code = np.array([code])
+            # if code.shape 
             code = np.concatenate(
                 [[self.special_token], code, [1]]
             )  # Append EOS token (assumed token id 1) # pick token 32000 as an indicate to query task (which is added token for flan t5)
@@ -360,16 +365,12 @@ if __name__ == "__main__":
 
     print("test set")
     test_dataset = SlueSQA5DatasetV2(
-        split="train",
-        code_path="/home/ricky/dodofk/dataset/slue_sqa_code_l22_c2000_bpe",
-        discrete_code_num=6000,
+        split="validation",
+        code_path="/home/ricky/dodofk/dataset/slue_sqa_code_l22_c1000",
+        discrete_code_num=1000,
     )
-    collator = IndexingCollator(tokenizer=test_dataset.tokenizer)
-
-
-    import time
-    start_time = time.process_time()
-    test_dataset.__getitem__(0)
-    end_time = time.process_time()
+    # collator = IndexingCollator(tokenizer=test_dataset.tokenizer)
     
-    print(f"CPU time: {end_time - start_time:.2f} seconds")
+    for i in range(len(test_dataset)):
+        print(test_dataset.__getitem__(i))
+
