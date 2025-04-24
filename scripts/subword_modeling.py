@@ -14,10 +14,11 @@ import tempfile
 import numpy as np
 from tqdm import tqdm
 
-VOCAB_SIZE = 6000
-code_dir = "/home/ricky/dodofk/dataset/slue_sqa_code_l22_c2000"
+VOCAB_SIZE = 2000
+code_dir = "/home/ricky/dodofk/dataset/slue_sqa_code_l22_c1000"
 code_files = glob.glob(os.path.join(code_dir, "*/*.code"))
-transform_code_dir = "/home/ricky/dodofk/dataset/slue_sqa_code_l22_c2000_bpe"
+transform_code_dir = "/home/ricky/dodofk/dataset/slue_sqa_code_l22_c1000_bpe"
+model_prefix = "bpe_model/slue_sqa_code_l22_c1000"
 
 split_code_name = [
     "train_code",
@@ -34,7 +35,7 @@ for split_code_name in split_code_name:
     if not os.path.exists(os.path.join(transform_code_dir, split_code_name)):
         os.makedirs(os.path.join(transform_code_dir, split_code_name))
 
-DO_TRAIN = False
+DO_TRAIN = True
 DO_TRANSFORM = True
 
 # load corpus
@@ -59,7 +60,7 @@ if DO_TRAIN:
         
     spm.SentencePieceTrainer.train(
         input=tmp_path,
-        model_prefix="bpe_modelslue_sqa_code_l22_c2000",
+        model_prefix=model_prefix,
         vocab_size=VOCAB_SIZE,
         model_type="bpe",
         max_sentence_length=10000,
@@ -68,10 +69,10 @@ if DO_TRAIN:
     
 if DO_TRANSFORM:
     # transform code files
-    if not os.path.exists("bpe_model/slue_sqa_code_l22_c2000.model"):
-        raise FileNotFoundError("bpe_model/slue_sqa_code_l22_c2000.model not found")
+    if not os.path.exists(f"{model_prefix}.model"):
+        raise FileNotFoundError(f"{model_prefix}.model not found")
     
-    sp = spm.SentencePieceProcessor(model_file="bpe_model/slue_sqa_code_l22_c2000.model")
+    sp = spm.SentencePieceProcessor(model_file=f"{model_prefix}.model")
     
     for code_file in tqdm(code_files, desc="Transforming code files"):
         with open(code_file, "r") as f:
@@ -81,7 +82,7 @@ if DO_TRANSFORM:
             # transform code file
             transformed_code = sp.encode(data, out_type=int)
             
-        save_code_path = code_file.replace("slue_sqa_code_l22_c2000", "slue_sqa_code_l22_c2000_bpe")
+        save_code_path = code_file.replace(code_dir, transform_code_dir)
         # transformed_code = np.array(transformed_code).long()
         np.savetxt(save_code_path, transformed_code, fmt="%i")
 
