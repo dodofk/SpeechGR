@@ -9,6 +9,9 @@ from transformers import (
     T5Tokenizer,
     T5TokenizerFast,
     T5ForConditionalGeneration,
+    BartTokenizer,
+    BartTokenizerFast,
+    BartForConditionalGeneration,
     TrainingArguments,
     TrainerCallback,
     MT5Tokenizer,
@@ -164,6 +167,16 @@ def main():
         # make model parameters contigious before training
         for param in model.parameters():
             param.data = param.data.contiguous()
+
+    elif "bart" in run_args.model_name:
+        if run_args.model_path:
+            model = BartForConditionalGeneration.from_pretrained(
+                run_args.model_path, cache_dir="cache"
+            )
+        else:
+            model = BartForConditionalGeneration.from_pretrained(
+                run_args.model_name, cache_dir="cache"
+            )
 
     else:
         if run_args.model_path:

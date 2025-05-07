@@ -12,3 +12,5 @@ accelerate
 librosa
 soundfile
 h5py
+evaluate
+rouge-score # for qg evaluation
