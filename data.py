@@ -36,7 +36,7 @@ class SlueSQA5DatasetV2(Dataset):
         split: str = "train",
         max_length: int = 512,
         dataset_path: str = "/home/ricky/dodofk/dataset/slue_sqa5/",
-        code_path: str = "/home/ricky/dodofk/dataset/slue_sqa_code_c512",
+        code_path: str = "/home/ricky/dodofk/dataset/slue_sqa_code_l22_c500",
         pq_filename: str = "slue_sqa5_pq10_llama32_3b_clean.csv",
         corpus_filename: str = "slue_sqa5_corpus.csv",
         model_name_or_path: str = "google/flan-t5-base",
@@ -75,7 +75,7 @@ class SlueSQA5DatasetV2(Dataset):
         self.doc_id_2_id = {}
         for _, row in self.pq_data.iterrows():
             if row["document_id"] not in self.doc_id_2_id:
-                self.doc_id_2_id[row["document_id"]] = str(row["idx"])
+                self.doc_id_2_id[row["document_id"]] = str(row["idx"])          
 
         # self.valid_ids = set(self.doc_id_2_id.values())
 
@@ -84,6 +84,9 @@ class SlueSQA5DatasetV2(Dataset):
         self.epoch = epoch
         self.discrete_code_num = discrete_code_num
         self.build_code_lookup()
+        self.q_id_2_query_id = {} # build a str to int mapping to enable transformers library
+        for _, row in self.data.iterrows():
+            self.q_id_2_query_id[row["question_id"]] = len(self.q_id_2_query_id) # use the index as the query id
 
         self.idx_len = None
         if split == "train":
@@ -198,14 +201,17 @@ class SlueSQA5DatasetV2(Dataset):
             if len(code) > self.max_length:
                 # print("Code length is too long, need to be truncated ===========")
                 code = np.concatenate([code[: self.max_length - 1], [1]])
-            return torch.LongTensor(code), document_id
+            if self.split == "train":
+                return torch.LongTensor(code), document_id, self.q_id_2_query_id[question_id]
+            else:
+                return torch.LongTensor(code), document_id, -1
         else:
             # For index task, only used in train
             idx_adjusted = idx - self.query_len
             code = self.corpus_code_data[idx_adjusted]
             # label = self.corpus_code_label[idx_adjusted]
             label = self.corpus_doc_id[idx_adjusted]
-            return torch.LongTensor(code), label
+            return torch.LongTensor(code), label, label
 
     def calculate_stat(self):
         """
@@ -354,7 +360,27 @@ class IndexingCollator(DataCollatorWithPadding):
         # replace padding token id's of the labels by -100 according to https://huggingface.co/docs/transformers/model_doc/t5#training
         labels[labels == self.tokenizer.pad_token_id] = -100
         inputs["labels"] = labels
+        inputs["query_doc_id"] = torch.Tensor([x[2] for x in features])
         return inputs
+    
+@dataclass
+class IndexingCollatorWithMetadata(DataCollatorWithPadding):
+    def __call__(self, features):
+        input_ids = [{"input_ids": x[0]} for x in features]
+        docids = [x[1] for x in features]
+        inputs = super().__call__(input_ids)
+
+        labels = self.tokenizer(
+            docids, padding="longest", return_tensors="pt"
+        ).input_ids
+
+        # replace padding token id's of the labels by -100 according to https://huggingface.co/docs/transformers/model_doc/t5#training
+        labels[labels == self.tokenizer.pad_token_id] = -100
+        inputs["labels"] = labels
+        inputs["query_doc_id"] = torch.Tensor([x[2] for x in features])
+        
+        return inputs
+    
 
 
 if __name__ == "__main__":
@@ -378,20 +404,22 @@ if __name__ == "__main__":
         discrete_code_num=500,
     )
     collator = IndexingCollator(tokenizer=test_dataset.tokenizer)
-    
+
     from torch.utils.data import DataLoader
-    dataloader = DataLoader(test_dataset, batch_size=1, collate_fn=collator)
+
+    dataloader = DataLoader(test_dataset, batch_size=2, collate_fn=collator)
 
     label_length = []
     for batch in dataloader:
         label_length.append(len(batch["labels"][0]))
-        
+        print(batch["labels"])
+        break
+
     # print(label_length)
-    print("avg length: ", np.mean(label_length))
-    print("std length: ", np.std(label_length))
-    print("max length: ", np.max(label_length))
-    print("min length: ", np.min(label_length))
-    print("median length: ", np.median(label_length))
+    # print("avg length: ", np.mean(label_length))
+    # print("std length: ", np.std(label_length))
+    # print("max length: ", np.max(label_length))
+    # print("min length: ", np.min(label_length))
 
     # for i in range(len(test_dataset)):
     #     print(test_dataset.__getitem__(i))
