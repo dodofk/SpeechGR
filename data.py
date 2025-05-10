@@ -84,9 +84,7 @@ class SlueSQA5DatasetV2(Dataset):
         self.epoch = epoch
         self.discrete_code_num = discrete_code_num
         self.build_code_lookup()
-        self.q_id_2_query_id = {} # build a str to int mapping to enable transformers library
-        for _, row in self.data.iterrows():
-            self.q_id_2_query_id[row["question_id"]] = len(self.q_id_2_query_id) # use the index as the query id
+        self.doc_id_2_idx = {} # build a str to int mapping to enable transformers library
 
         self.idx_len = None
         if split == "train":
@@ -145,6 +143,9 @@ class SlueSQA5DatasetV2(Dataset):
         corpus_code_label = []
         corpus_doc_id = []
         for doc_id in self.corpus_data["document_id"]:
+            if doc_id not in self.doc_id_2_idx:
+                self.doc_id_2_idx[doc_id] = len(self.doc_id_2_idx)
+            
             code_file_path = os.path.join(
                 self.code_path,
                 "document_code",
@@ -202,16 +203,16 @@ class SlueSQA5DatasetV2(Dataset):
                 # print("Code length is too long, need to be truncated ===========")
                 code = np.concatenate([code[: self.max_length - 1], [1]])
             if self.split == "train":
-                return torch.LongTensor(code), document_id, self.q_id_2_query_id[question_id]
+                return torch.LongTensor(code), document_id, self.doc_id_2_idx[document_id]
             else:
-                return torch.LongTensor(code), document_id, -1
+                return torch.LongTensor(code), document_id, -1 # fake query id for validation set (will be removed in prediction step)
         else:
             # For index task, only used in train
             idx_adjusted = idx - self.query_len
             code = self.corpus_code_data[idx_adjusted]
             # label = self.corpus_code_label[idx_adjusted]
             label = self.corpus_doc_id[idx_adjusted]
-            return torch.LongTensor(code), label, label
+            return torch.LongTensor(code), label, self.doc_id_2_idx[label]
 
     def calculate_stat(self):
         """
