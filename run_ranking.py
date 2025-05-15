@@ -177,7 +177,7 @@ def main():
     )
     
     neg_lambda_callback = NegLambdaScheduleCallback(
-        inbatch_schedule = [(0, 0.0), (2, 0.5)],   # start in-batch at epoch 1
+        inbatch_schedule = [(0, 0.0), (5, 0.1)],   # start in-batch at epoch 1
     )
     neg_lambda_callback.trainer = trainer
     

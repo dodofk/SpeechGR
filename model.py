@@ -7,6 +7,7 @@ from transformers import (
     # Seq2SeqLMOutput,
 )
 from transformers.modeling_outputs import Seq2SeqLMOutput
+import math
 
 
 class ContinousEmbT5(T5ForConditionalGeneration):
@@ -171,26 +172,24 @@ class LatentQueryT5(T5ForConditionalGeneration):
 
         self.encoder.shared = self.shared
         self.tie_weights
-        
+
     # optional: expose enc_hidden so Trainer can access it
     def forward(self, input_ids=None, labels=None, **kwargs):
         kwargs.pop("attention_mask", None)
-        outputs = super().forward(input_ids=input_ids, labels=labels, output_hidden_states=True, **kwargs)
+        outputs = super().forward(
+            input_ids=input_ids, labels=labels, output_hidden_states=True, **kwargs
+        )
         # outputs is Seq2SeqLMOutput; we add encoder hidden state for ranking later
         return outputs
-        # return {
-        #     "loss": outputs.loss,
-        #     "logits": outputs.logits,
-        #     "enc_hidden": outputs.encoder_last_hidden_state,
-        # }
-        
+
     def ripor_logprob(
-        self, dec_hidden: torch.Tensor, doc_tokens: torch.Tensor,
+        self,
+        dec_hidden: torch.Tensor,
+        doc_tokens: torch.Tensor,
     ):
         labels = doc_tokens.clone()
         labels[labels == -100] = self.config.pad_token_id
         decoder_embeds = self.decoder.embed_tokens(labels)
-        print("margin times shape: ", (dec_hidden * decoder_embeds).shape, (dec_hidden * decoder_embeds))
         margin = (dec_hidden * decoder_embeds).sum(-1).sum(-1)
         return margin
 
@@ -222,7 +221,7 @@ class LatentQueryT5(T5ForConditionalGeneration):
             [start_col, doc_tokens[:, :-1]], dim=1
         )  # same length as target
         dec_in[dec_in == -100] = self.config.pad_token_id
-        
+
         # 2.  replace -100 paddings in labels with <pad> so gather() is safe
         labels = doc_tokens.clone()
         pad_mask = labels == -100
@@ -236,18 +235,14 @@ class LatentQueryT5(T5ForConditionalGeneration):
         )
         sequence_output = dec_out["last_hidden_state"]
         decoder_embeds = self.decoder.embed_tokens(dec_in)
-        
-        seq_len = sequence_output.shape[1]
-        n_dim = sequence_output.shape[2]
-        
         margin = (sequence_output * decoder_embeds).sum(-1).sum(-1)
         return margin
-        
+
         # if self.config.tie_word_embeddings:
         #     sequence_output = sequence_output * (self.model_dim ** -0.5)
-        
+
         # logits = self.lm_head(sequence_output)
-            
+
         # log_p = F.log_softmax(logits, dim=-1)  # [B*, L_doc, V]
         # # 4.  pick the log-prob assigned to each target token
         # tok_lp = log_p.gather(-1, labels.unsqueeze(-1)).squeeze(-1)  # [B*, L_doc]
@@ -256,11 +251,311 @@ class LatentQueryT5(T5ForConditionalGeneration):
         # return tok_lp.sum(dim=-1)
 
 
-if __name__ == "__main__":    
+class QFormerBlock(nn.Module):
+    """Cross-Attn → Self-Attn → FFN with pre-norm residuals."""
+
+    def __init__(self, d_model: int = 768, n_heads: int = 12, dropout: float = 0.1):
+        super().__init__()
+        self.cross_attn = nn.MultiheadAttention(
+            d_model, n_heads, dropout=dropout, batch_first=True
+        )
+        self.self_attn = nn.MultiheadAttention(
+            d_model, n_heads, dropout=dropout, batch_first=True
+        )
+        self.ffn = nn.Sequential(
+            nn.Linear(d_model, 4 * d_model),
+            nn.GELU(),
+            nn.Linear(4 * d_model, d_model),
+            nn.Dropout(dropout),
+        )
+        # layer norms
+        self.ln_q1 = nn.LayerNorm(d_model)
+        self.ln_q2 = nn.LayerNorm(d_model)
+        self.ln_q3 = nn.LayerNorm(d_model)
+
+    def forward(self, q: torch.Tensor, x: torch.Tensor) -> torch.Tensor:
+        # q: (B, M, D) learnable queries
+        # x: (B, L, D) window frames (no grad through x if upstream encoder frozen)
+        q = q + self.cross_attn(self.ln_q1(q), x, x, need_weights=False)[0]
+        q = (
+            q
+            + self.self_attn(
+                self.ln_q2(q), self.ln_q2(q), self.ln_q2(q), need_weights=False
+            )[0]
+        )
+        q = q + self.ffn(self.ln_q3(q))
+        return q
+
+
+class WindowQFormer(nn.Module):
+    """
+    Args:
+        d_model: feature dim (must match speech encoder output, we use discrete unit, so dim same as t5 text embedding dim)
+        n_heads: multi-head attn heads
+        n_queries: queries per window (N)
+        depth: number of Q-Former blocks
+        win_size_f: window length **in frames** (L)
+        win_stride_f: hop size in frames
+    """
+
+    def __init__(
+        self,
+        d_model: int = 768,
+        n_heads: int = 12,
+        n_queries: int = 1,
+        depth: int = 2,
+        win_size_f: int = 17,
+        win_stride_f: int = 17,
+        dropout: float = 0.1,
+    ):
+        super().__init__()
+        self.win_size_f = win_size_f
+        self.win_stride_f = win_stride_f
+
+        # shared learnable queries
+        self.queries = nn.Parameter(torch.randn(1, n_queries, d_model) * 0.02)
+
+        # stack of Q-Former blocks
+        self.blocks = nn.ModuleList(
+            [QFormerBlock(d_model, n_heads, dropout) for _ in range(depth)]
+        )
+        self.ln_out = nn.LayerNorm(d_model)
+
+    # --------------------------------------------------------------
+    def _framed_windows(self, x: torch.Tensor) -> list[torch.Tensor]:
+        """Slice (B, T, D) into overlapping windows → list[(B, L, D)]."""
+        B, T, D = x.shape
+        windows = []
+        for start in range(0, T, self.win_stride_f):
+            end = start + self.win_size_f
+            if end > T:
+                pad_len = end - T
+                pad = x.new_zeros(B, pad_len, D)
+                window = torch.cat([x[:, start:T, :], pad], dim=1)
+            else:
+                window = x[:, start:end, :]
+            windows.append(window)
+            if end >= T:
+                break
+        return windows
+
+    # --------------------------------------------------------------
+    def forward(self, feats: torch.Tensor) -> torch.Tensor:
+        """
+        feats : (B, T_frames, D) – speech encoder output
+        Returns compressed tokens: (B, W*n_queries, D)
+        """
+        summaries = []
+        for window in self._framed_windows(feats):
+            q = self.queries.expand(window.size(0), -1, -1)  # (B, M, D)
+            for blk in self.blocks:
+                q = blk(q, window)
+            summaries.append(self.ln_out(q))
+        return torch.cat(summaries, dim=1)  # (B, Windows*M, D)
+
+
+class QFormerEncoderWrapper(nn.Module):
+    """Replaces vanilla T5 encoder with window-level Q-Former → T5 encoder."""
+
+    def __init__(
+        self,
+        base_encoder: nn.Module,
+        shared_emb: nn.Embedding,
+        compressor: WindowQFormer,
+        freeze_base_encoder: bool = True,
+    ):
+        super().__init__()
+        self.base_encoder = base_encoder
+        self.shared = shared_emb
+        self.compressor = compressor
+
+        if freeze_base_encoder:
+            for p in self.base_encoder.parameters():
+                p.requires_grad = False
+
+    @property
+    def main_input_name(self):
+        # keeps HF Trainer happy
+        return "input_ids"
+
+    # ----------------------------------------------------------
+    def forward(
+        self,
+        input_ids: torch.Tensor = None,
+        inputs_embeds: torch.Tensor = None,  # (B,T,D) speech feats
+        attention_mask: torch.Tensor = None,  # ignored; recomputed
+        **kwargs,
+    ):
+        """
+        1) compress long feat seq → (B, S', D) S' is the equals to seq_len / win_stride_f
+        2) run (frozen) T5 encoder on compressed sequence
+        """
+        if inputs_embeds:
+            latent = self.compressor(inputs_embeds)
+        else:
+            latent = self.compressor(self.shared(input_ids))
+
+        return self.base_encoder(
+            inputs_embeds=latent, attention_mask=attention_mask, **kwargs
+        )
+
+
+class QFormerT5(T5ForConditionalGeneration):
+    """
+    Usage
+    -----
+    >>> model = QFormerT5(
+    ...     "google/flan-t5-base",
+    ...     d_model_front=1024,
+    ...     win_size_f=17, win_stride_f=17,
+    ...     n_queries=1, depth=2,
+    ... )
+    >>> feats = [discrete_unit_1, discrete_unit_2, ...] # use discrete unit as input
+    >>> seq = model.generate(input_ids=input_ids)
+    """
+
+    def __init__(
+        self,
+        base_name: str = "google/flan-t5-base",
+        *,
+        d_model_front: int,
+        win_size_f: int = 17,
+        win_stride_f: int = 17,
+        n_queries: int = 1,
+        depth: int = 2,
+        freeze_t5_encoder: bool = True,
+    ):
+        # 1) load vanilla weights
+        super().__init__(T5Config.from_pretrained(base_name))
+        self.load_state_dict(
+            T5ForConditionalGeneration.from_pretrained(base_name).state_dict(),
+            strict=True,
+        )
+        self.win_size_f = win_size_f
+        self.win_stride_f = win_stride_f
+        self.n_queries = n_queries
+
+        # 2) build Q-Former compressor (d_model_front may ≠ T5 d_model)
+        if d_model_front != self.config.d_model:
+            self.front_proj = nn.Linear(d_model_front, self.config.d_model)
+        else:
+            self.front_proj = nn.Identity()
+
+        compressor = WindowQFormer(
+            d_model=self.config.d_model,
+            n_heads=self.config.num_heads,
+            n_queries=n_queries,
+            depth=depth,
+            win_size_f=win_size_f,
+            win_stride_f=win_stride_f,
+        )
+
+        # 3) wrap / replace encoder
+        self.encoder = QFormerEncoderWrapper(
+            self.encoder,
+            self.shared,
+            compressor,
+            freeze_base_encoder=freeze_t5_encoder,
+        )
+        self.encoder.shared = self.shared  # keep tie_weights happy
+
+    def _build_window_mask(
+        self,
+        orig_mask: torch.Tensor,
+    ) -> torch.Tensor:
+        """
+        Compress a frame-level attention mask (B, Tf) → (B, W*n_q)
+
+        A window is ‘valid’ (mask =1) iff at least one of its `win` frames is 1.
+        The flag is then repeated `n_q` times because every window yields n_q
+        query tokens.
+
+        orig_mask : 1 = real frame, 0 = padding
+        """
+        _, Tf = orig_mask.shape
+        out_chunks = []
+        for start in range(0, Tf, self.win_stride_f):
+            end = start + self.win_size_f
+            # clamp end so we don't step beyond `Tf`
+            seg = orig_mask[:, start : min(end, Tf)]
+            has_real = (seg.sum(dim=1, keepdim=True) > 0).long()  # (B,1)
+            out_chunks.append(has_real.repeat(1, self.n_queries))  # (B,n_q)
+            if end >= Tf:
+                break
+        return torch.cat(out_chunks, dim=1).to(orig_mask.device)
+
+    def _build_full_window_mask(self, orig_mask: torch.Tensor) -> torch.Tensor:
+        """
+        Generate a full window mask for the input sequence. Where the size is same after the sliding window.
+        """
+        B, TF = orig_mask.shape
+        n_win = max(1, math.ceil((TF - self.win_size_f) / self.win_stride_f) + 1)
+        S = n_win * self.n_queries
+
+        return torch.ones(B, S, device=orig_mask.device, dtype=torch.long)
+    
+    def _prepare_encoder_decoder_kwargs_for_generation(
+        self, input_ids, model_kwargs, model_input_name, generation_config, 
+    ):
+        # HuggingFace will call this before running the encoder.
+        # model_kwargs contains "attention_mask" (the original frame mask)
+        # and maybe "inputs_embeds" if you passed them to .generate().
+        frame_mask = model_kwargs.pop("attention_mask", None)
+        ssl_feats  = model_kwargs.pop("inputs_embeds", None)
+
+        # Project ssl_feats if needed
+        if ssl_feats is not None:
+            ssl_feats = self.front_proj(ssl_feats)
+
+        # Build the windowed mask
+        window_mask = self._build_window_mask(frame_mask)
+
+        # Now actually run the encoder once and stash `encoder_outputs`
+        encoder_outputs = self.encoder(
+            input_ids=input_ids,
+            inputs_embeds=ssl_feats,
+            attention_mask=window_mask,
+        )
+
+        return {
+            "encoder_outputs": encoder_outputs, 
+            "attention_mask": window_mask
+        }
+
+    # ----------------------------------------------------------
+    def forward(
+        self,
+        input_ids: torch.Tensor = None,
+        inputs_embeds: torch.Tensor = None,  # speech feats
+        attention_mask=None,
+        **kwargs,
+    ):
+        if inputs_embeds:
+            # project if we use ssl feature else using shared embedding and the lookup table deal in QFormerEncoderWrapper
+            proj_embeds = self.front_proj(inputs_embeds)
+
+        if kwargs.get("encoder_outputs", None) is not None:
+            new_mask = attention_mask # if we have encoder output which means our attention mask already has window mask
+        elif attention_mask is not None:
+            new_mask = self._build_window_mask(attention_mask)
+        else:
+            print("Info: Potential Error no attention mask or encoder output")
+            new_mask = self._build_full_window_mask(attention_mask)
+
+        return super().forward(
+            input_ids=input_ids,
+            inputs_embeds=proj_embeds if inputs_embeds else None,
+            attention_mask=new_mask,
+            **kwargs,
+        )
+
+
+if __name__ == "__main__":
     from data import SlueSQA5DatasetV2, IndexingCollator
     from torch.utils.data import DataLoader
     from transformers import AutoTokenizer
     import os
+
     tokenizer = AutoTokenizer.from_pretrained("google/flan-t5-base")
     dataset = SlueSQA5DatasetV2(split="train", max_length=512, discrete_code_num=500)
     collator = IndexingCollator(tokenizer)
@@ -271,18 +566,17 @@ if __name__ == "__main__":
     batch = next(iter(dataloader))
     batch = {k: v.to("cuda") for k, v in batch.items()}
     batch.pop("query_doc_id")
-    model = LatentQueryT5().to("cuda")
-    outputs = model(**batch)
-    
+    model = QFormerT5(
+        base_name="google/flan-t5-base",
+        d_model_front=768,
+        win_size_f=17,
+        win_stride_f=17,
+        n_queries=1,
+        depth=2,
+    ).to("cuda")
     # testing sequence_logprob
-    # enc_hidden = outputs["encoder_last_hidden_state"]
-    dec_hidden = outputs["decoder_hidden_states"][-1]
-    doc_tokens = batch["labels"]
-
-    logp_seq = model.ripor_logprob(dec_hidden, doc_tokens)
-    # logp_seq = model.sequence_logprob(dec_hidden, doc_tokens)
-    print("logp_seq.shape: ", logp_seq.shape, logp_seq)
-
+    outputs = model(**batch)
+    print("Outputs: ", outputs)
     # testing predict
     # input_ids = batch["input_ids"]
     # outputs = model.generate(input_ids)
