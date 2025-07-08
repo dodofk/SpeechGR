@@ -1,6 +1,7 @@
 from data import (
     IndexingCollator,
     SlueSQA5DatasetV2,
+    IndexingCollatorWithAtomic,
 )
 
 from utils import RestrictDecodeVocab
@@ -58,6 +59,8 @@ class RunArguments:
     downsample_factor: int = field(default=2)
     ssl_feat_dim: int = field(default=1024)  # should manually maintain both dim
     hidden_dim: int = field(default=768)
+    run_atomic: bool = field(default=False)
+    atomic_offset: int = field(default=50)
 
 
 def make_compute_metrics(tokenizer, valid_ids):
@@ -197,6 +200,8 @@ def main():
         special_token=run_args.special_token,
         discrete_code_num=run_args.discrete_code_num,
         lookup_file_name=run_args.lookup_file_name,
+        train_atomic=run_args.run_atomic,
+        atomic_offset=run_args.atomic_offset,
     )
 
     valid_dataset = SlueSQA5DatasetV2(
@@ -208,6 +213,8 @@ def main():
         special_token=run_args.special_token,
         discrete_code_num=run_args.discrete_code_num,
         lookup_file_name=run_args.lookup_file_name,
+        train_atomic=run_args.run_atomic,
+        atomic_offset=run_args.atomic_offset,
     )
 
     test_dataset = SlueSQA5DatasetV2(
@@ -219,23 +226,27 @@ def main():
         special_token=run_args.special_token,
         discrete_code_num=run_args.discrete_code_num,
         lookup_file_name=run_args.lookup_file_name,
+        train_atomic=run_args.run_atomic,
+        atomic_offset=run_args.atomic_offset,
     )
 
     restrict_decode_vocab = RestrictDecodeVocab(
         valid_ids=train_dataset.valid_ids, tokenizer=tokenizer
     )
 
+    if run_args.run_atomic:
+        collator = IndexingCollatorWithAtomic(tokenizer=tokenizer, padding="longest")
+    else:
+        collator = IndexingCollator(tokenizer=tokenizer, padding="longest")
+
     trainer = DSITrainer(
         model=model,
         tokenizer=tokenizer,
         args=training_args,
         train_dataset=train_dataset,
-        # eval_dataset=valid_dataset,
-        eval_dataset=test_dataset,
-        data_collator=IndexingCollator(
-            tokenizer,
-            padding="longest",
-        ),
+        eval_dataset=valid_dataset,
+        # eval_dataset=test_dataset,
+        data_collator=collator,
         compute_metrics=make_compute_metrics(fast_tokenizer, train_dataset.valid_ids),
         id_max_length=run_args.id_max_length,
         restrict_decode_vocab=restrict_decode_vocab,
