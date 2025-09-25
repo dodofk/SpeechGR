@@ -193,6 +193,8 @@ def _build_dataset(
             encoder_name=data_cfg.encoder_name or "wavtokenizer",
             include_corpus=data_cfg.include_corpus,
             max_length=max_length,
+            train_atomic=data_cfg.train_atomic,
+            atomic_offset=data_cfg.atomic_offset,
         )
 
     if not data_cfg.code_path:

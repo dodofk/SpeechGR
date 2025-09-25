@@ -43,12 +43,16 @@ class SLUESQA5Dataset(Dataset, ABC):
         *,
         csv_root: str,
         include_corpus: bool = True,
+        train_atomic: bool = False,
+        atomic_offset: int = 0,
     ) -> None:
         if split not in _SPLITS:
             raise ValueError(f"split must be one of {_SPLITS}, got '{split}'")
 
         self.split = split
         self.include_corpus = include_corpus and split == "train"
+        self.train_atomic = train_atomic
+        self.atomic_offset = atomic_offset
 
         csv_dir = Path(csv_root)
         self.query_frame = pd.read_csv(csv_dir / f"{split}.csv")
@@ -58,7 +62,10 @@ class SLUESQA5Dataset(Dataset, ABC):
         self.doc_ids = corpus_frame["document_id"].tolist()
         self.doc_id_to_idx = {doc_id: idx for idx, doc_id in enumerate(self.doc_ids)}
 
-        self.valid_ids = self.doc_ids
+        if self.train_atomic:
+            self.valid_ids = [str(idx + self.atomic_offset) for idx in range(len(self.doc_ids))]
+        else:
+            self.valid_ids = self.doc_ids
 
     def __len__(self) -> int:
         if self.include_corpus:
@@ -71,7 +78,9 @@ class SLUESQA5Dataset(Dataset, ABC):
             question_id = str(row["question_id"])
             document_id = str(row["document_id"])
             doc_idx = self.doc_id_to_idx.get(document_id, -1)
-            return self._get_query_item(question_id, document_id, doc_idx)
+            features = self._get_query_features(question_id)
+            label = self._label(document_id, doc_idx)
+            return features, label, doc_idx
 
         if not self.include_corpus:
             raise IndexError("Index out of range for query-only dataset")
@@ -79,14 +88,21 @@ class SLUESQA5Dataset(Dataset, ABC):
         corpus_idx = index - self.query_len
         document_id = self.doc_ids[corpus_idx]
         doc_idx = self.doc_id_to_idx[document_id]
-        return self._get_corpus_item(document_id, doc_idx)
+        features = self._get_corpus_features(document_id)
+        label = self._label(document_id, doc_idx)
+        return features, label, doc_idx
+
+    def _label(self, document_id: str, doc_idx: int) -> str | int:
+        if self.train_atomic:
+            return doc_idx + self.atomic_offset
+        return document_id
 
     @abstractmethod
-    def _get_query_item(self, question_id: str, document_id: str, doc_idx: int):
+    def _get_query_features(self, question_id: str) -> torch.Tensor:
         raise NotImplementedError
 
     @abstractmethod
-    def _get_corpus_item(self, document_id: str, doc_idx: int):
+    def _get_corpus_features(self, document_id: str) -> torch.Tensor:
         raise NotImplementedError
 
 
@@ -103,8 +119,16 @@ class DiscreteUnitDataset(SLUESQA5Dataset):
         include_corpus: bool = True,
         max_length: Optional[int] = None,
         codes_key: str = "codes",
+        train_atomic: bool = False,
+        atomic_offset: int = 0,
     ) -> None:
-        super().__init__(split, csv_root=csv_root, include_corpus=include_corpus)
+        super().__init__(
+            split,
+            csv_root=csv_root,
+            include_corpus=include_corpus,
+            train_atomic=train_atomic,
+            atomic_offset=atomic_offset,
+        )
 
         cache_dir = Path(cache_root)
         self.encoder_name = encoder_name
@@ -118,7 +142,7 @@ class DiscreteUnitDataset(SLUESQA5Dataset):
             cache_dir / "corpus" / f"corpus_{encoder_name}.pt"
         )
 
-    def _get_query_item(self, question_id: str, document_id: str, doc_idx: int):
+    def _get_query_features(self, question_id: str) -> torch.Tensor:
         cache_entry = self.query_cache.get(question_id)
         if cache_entry is None:
             raise KeyError(
@@ -130,9 +154,9 @@ class DiscreteUnitDataset(SLUESQA5Dataset):
                 f"Cache entry for '{question_id}' missing key '{self.codes_key}'"
             )
         tensor = _truncate(_ensure_tensor(codes, dtype=torch.long), self.max_length)
-        return tensor, document_id, doc_idx
+        return tensor
 
-    def _get_corpus_item(self, document_id: str, doc_idx: int):
+    def _get_corpus_features(self, document_id: str) -> torch.Tensor:
         cache_entry = self.corpus_cache.get(document_id)
         if cache_entry is None:
             raise KeyError(
@@ -144,7 +168,7 @@ class DiscreteUnitDataset(SLUESQA5Dataset):
                 f"Cache entry for '{document_id}' missing key '{self.codes_key}'"
             )
         tensor = _truncate(_ensure_tensor(codes, dtype=torch.long), self.max_length)
-        return tensor, document_id, doc_idx
+        return tensor
 
 
 class ContinuousDataset(SLUESQA5Dataset):
@@ -160,8 +184,16 @@ class ContinuousDataset(SLUESQA5Dataset):
         include_corpus: bool = True,
         feature_key: str = "features",
         dtype: torch.dtype = torch.float32,
+        train_atomic: bool = False,
+        atomic_offset: int = 0,
     ) -> None:
-        super().__init__(split, csv_root=csv_root, include_corpus=include_corpus)
+        super().__init__(
+            split,
+            csv_root=csv_root,
+            include_corpus=include_corpus,
+            train_atomic=train_atomic,
+            atomic_offset=atomic_offset,
+        )
 
         cache_dir = Path(cache_root)
         self.encoder_name = encoder_name
@@ -175,7 +207,7 @@ class ContinuousDataset(SLUESQA5Dataset):
             cache_dir / "corpus" / f"corpus_{encoder_name}.pt"
         )
 
-    def _get_query_item(self, question_id: str, document_id: str, doc_idx: int):
+    def _get_query_features(self, question_id: str) -> torch.Tensor:
         cache_entry = self.query_cache.get(question_id)
         if cache_entry is None:
             raise KeyError(
@@ -187,9 +219,9 @@ class ContinuousDataset(SLUESQA5Dataset):
                 f"Cache entry for '{question_id}' missing key '{self.feature_key}'"
             )
         tensor = _ensure_tensor(features, dtype=self.dtype)
-        return tensor, document_id, doc_idx
+        return tensor
 
-    def _get_corpus_item(self, document_id: str, doc_idx: int):
+    def _get_corpus_features(self, document_id: str) -> torch.Tensor:
         cache_entry = self.corpus_cache.get(document_id)
         if cache_entry is None:
             raise KeyError(
@@ -201,7 +233,7 @@ class ContinuousDataset(SLUESQA5Dataset):
                 f"Cache entry for '{document_id}' missing key '{self.feature_key}'"
             )
         tensor = _ensure_tensor(features, dtype=self.dtype)
-        return tensor, document_id, doc_idx
+        return tensor
 
 
 __all__ = ["SLUESQA5Dataset", "DiscreteUnitDataset", "ContinuousDataset"]

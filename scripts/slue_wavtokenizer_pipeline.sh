@@ -29,6 +29,7 @@ uv run python -m speechgr.cli.train \
   data.dataset_path="$CSV_ROOT" \
   data.precompute_root="$CACHE_ROOT" \
   data.encoder_name=wavtokenizer \
+  data.train_atomic=true \
   model.model_name=google/flan-t5-base \
   training.training_args.output_dir="$OUTPUT_ROOT/models" \
   training.training_args.per_device_train_batch_size=4 \
