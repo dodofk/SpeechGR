@@ -1,7 +1,9 @@
 """
-This code is modified from github `ArvinZhuang/DSI-QG` repo.
+Deprecated dataset implementations.
 
-The file contains dataset class for our speech DSI task.
+This module is retained for backward compatibility while the new
+`speechgr.data.slue_sqa5` module takes over. Expect this file to be
+refactored or removed once downstream references migrate.
 """
 
 from dataclasses import dataclass
