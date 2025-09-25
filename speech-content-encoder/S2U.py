@@ -26,6 +26,7 @@ logger = logging.getLogger(__name__)
 # Constant for the known document corpus size
 DOCUMENT_CORPUS_SIZE = 15883
 
+
 @dataclass
 class Config:
     """
@@ -41,6 +42,8 @@ class Config:
     device: str = "cuda" if torch.cuda.is_available() else "cpu"
     task: str = "slue_sqa5"
     save_format: str = "h5py"  # Options: "code", "h5py", "both"
+    use_vad: bool = False  # Whether to use VAD for silence removal
+    vad_threshold: float = 0.5  # VAD threshold for speech detection
 
     def __post_init__(self):
         assert self.task in [
@@ -48,14 +51,46 @@ class Config:
             "librispeech",
         ], "task must be either slue_sqa5 or librispeech"
         assert self.save_format in [
-            "code", 
-            "h5py", 
-            "both"
+            "code",
+            "h5py",
+            "both",
         ], "save_format must be one of 'code', 'h5py', or 'both'"
-        
+
         # Create a shorthand for checking if we should save in a particular format
         self.save_code = self.save_format in ["code", "both"]
         self.save_h5py = self.save_format in ["h5py", "both"]
+
+
+def load_vad_model(use_cuda: bool):
+    """Load Silero VAD model and utilities."""
+    logger.info("Loading Silero-VAD ...")
+    model, utils = torch.hub.load("snakers4/silero-vad", "silero_vad", trust_repo=True)
+    (get_speech_timestamps, *_rest) = utils
+    model.eval()
+    if use_cuda and torch.cuda.is_available():
+        model = model.to("cuda")
+    return model, get_speech_timestamps
+
+
+def strip_silence(
+    wav: np.ndarray, vad_model, get_speech_timestamps, use_cuda: bool, threshold: float
+) -> np.ndarray:
+    """Return waveform with silent regions removed (mono 16 kHz expected)."""
+    tensor = torch.tensor(wav, dtype=torch.float32).squeeze()
+    if use_cuda and torch.cuda.is_available():
+        tensor = tensor.to("cuda")
+    ts = get_speech_timestamps(tensor, vad_model, threshold=threshold, sampling_rate=16000)
+    if not ts:
+        return wav
+    chunks = [tensor[t["start"] : t["end"]] for t in ts]
+    return torch.cat(chunks).cpu().numpy()
+
+
+def process_audio(wav: np.ndarray, config: Config, vad_model=None, get_speech_timestamps=None) -> np.ndarray:
+    """Process audio with optional VAD."""
+    if config.use_vad and vad_model is not None and get_speech_timestamps is not None:
+        wav = strip_silence(wav, vad_model, get_speech_timestamps, config.device == "cuda", config.vad_threshold)
+    return wav
 
 
 class ApplyKmeans:
@@ -145,30 +180,58 @@ def process_sqa_split(
     """
     print(f"Processing split: {split}")
     files = dataset[split]
-    
+
+    # Load VAD model if needed
+    if config.use_vad:
+        vad_model, get_speech_timestamps = load_vad_model(config.device == "cuda")
+    else:
+        vad_model = get_speech_timestamps = None
+
     # Setup h5py file if needed
     if config.save_h5py:
         str_dtype = h5py.string_dtype(encoding="utf-8")
         vlen_int_dtype = h5py.vlen_dtype(np.int32)
-        
+
         # Create split h5py file for questions
         q_h5_file = h5py.File(os.path.join(config.output_dir, f"{split}.h5"), "w")
-        q_id_dataset = q_h5_file.create_dataset("ids", shape=(len(files),), dtype=str_dtype)
-        q_code_dataset = q_h5_file.create_dataset("codes", shape=(len(files),), dtype=vlen_int_dtype)
-        q_counts_dataset = q_h5_file.create_dataset("counts", shape=(len(files),), dtype=vlen_int_dtype)
-        q_text_dataset = q_h5_file.create_dataset("text", shape=(len(files),), dtype=str_dtype)
-        
+        q_id_dataset = q_h5_file.create_dataset(
+            "ids", shape=(len(files),), dtype=str_dtype
+        )
+        q_code_dataset = q_h5_file.create_dataset(
+            "codes", shape=(len(files),), dtype=vlen_int_dtype
+        )
+        q_counts_dataset = q_h5_file.create_dataset(
+            "counts", shape=(len(files),), dtype=vlen_int_dtype
+        )
+        q_text_dataset = q_h5_file.create_dataset(
+            "text", shape=(len(files),), dtype=str_dtype
+        )
+
         # Create document h5py file if it doesn't exist
         p_h5_path = os.path.join(config.output_dir, "documents.h5")
         if not os.path.exists(p_h5_path):
             p_h5_file = h5py.File(p_h5_path, "w")
             # Use the known corpus size for pre-allocation
-            p_h5_file.create_dataset("ids", shape=(0,), dtype=str_dtype, maxshape=(DOCUMENT_CORPUS_SIZE,))
-            p_h5_file.create_dataset("codes", shape=(0,), dtype=vlen_int_dtype, maxshape=(DOCUMENT_CORPUS_SIZE,))
-            p_h5_file.create_dataset("counts", shape=(0,), dtype=vlen_int_dtype, maxshape=(DOCUMENT_CORPUS_SIZE,))
-            p_h5_file.create_dataset("text", shape=(0,), dtype=str_dtype, maxshape=(DOCUMENT_CORPUS_SIZE,))
+            p_h5_file.create_dataset(
+                "ids", shape=(0,), dtype=str_dtype, maxshape=(DOCUMENT_CORPUS_SIZE,)
+            )
+            p_h5_file.create_dataset(
+                "codes",
+                shape=(0,),
+                dtype=vlen_int_dtype,
+                maxshape=(DOCUMENT_CORPUS_SIZE,),
+            )
+            p_h5_file.create_dataset(
+                "counts",
+                shape=(0,),
+                dtype=vlen_int_dtype,
+                maxshape=(DOCUMENT_CORPUS_SIZE,),
+            )
+            p_h5_file.create_dataset(
+                "text", shape=(0,), dtype=str_dtype, maxshape=(DOCUMENT_CORPUS_SIZE,)
+            )
             p_h5_file.close()
-        
+
         p_h5_file = h5py.File(p_h5_path, "a")
         existing_doc_ids = set(p_h5_file["ids"][()])
 
@@ -185,13 +248,15 @@ def process_sqa_split(
         p_code_path = os.path.join(config.output_dir, "document_code", f"{p_id}.code")
 
         # Process question
-        q_should_process = (config.save_code and not os.path.exists(q_code_path)) or config.save_h5py
+        q_should_process = (
+            config.save_code and not os.path.exists(q_code_path)
+        ) or config.save_h5py
         if q_should_process:
-            q_tensor = torch.FloatTensor(q_wavs)
+            q_tensor = torch.FloatTensor(process_audio(q_wavs, config, vad_model, get_speech_timestamps))
             q_merged_code, q_counts = extract_discrete_code(
                 q_tensor, config, extractor, apply_kmeans
             )
-            
+
             # Save to .code file if needed
             if config.save_code and not os.path.exists(q_code_path):
                 np.savetxt(q_code_path, q_merged_code.long(), fmt="%i")
@@ -202,11 +267,13 @@ def process_sqa_split(
                 )
                 # Save transcription
                 with open(
-                    os.path.join(config.output_dir, f"{split}_code", f"{q_id}.trans.txt"),
+                    os.path.join(
+                        config.output_dir, f"{split}_code", f"{q_id}.trans.txt"
+                    ),
                     "w",
                 ) as trans_file:
                     trans_file.write(q_text)
-            
+
             # Save to h5py if enabled
             if config.save_h5py:
                 q_id_dataset[idx] = q_id
@@ -215,13 +282,15 @@ def process_sqa_split(
                 q_text_dataset[idx] = q_text
 
         # Process document if not already done
-        p_should_process = (config.save_code and not os.path.exists(p_code_path)) or (config.save_h5py and p_id not in existing_doc_ids)
+        p_should_process = (config.save_code and not os.path.exists(p_code_path)) or (
+            config.save_h5py and p_id not in existing_doc_ids
+        )
         if p_should_process:
-            p_tensor = torch.FloatTensor(p_wavs)
+            p_tensor = torch.FloatTensor(process_audio(p_wavs, config, vad_model, get_speech_timestamps))
             p_merged_code, p_counts = extract_discrete_code(
                 p_tensor, config, extractor, apply_kmeans
             )
-            
+
             # Save to .code file if needed
             if config.save_code and not os.path.exists(p_code_path):
                 np.savetxt(p_code_path, p_merged_code.long(), fmt="%i")
@@ -232,11 +301,13 @@ def process_sqa_split(
                 )
                 # Save transcription
                 with open(
-                    os.path.join(config.output_dir, "document_code", f"{p_id}.trans.txt"),
+                    os.path.join(
+                        config.output_dir, "document_code", f"{p_id}.trans.txt"
+                    ),
                     "w",
                 ) as trans_file:
                     trans_file.write(p_text)
-            
+
             # Save to h5py if enabled and not already saved
             if config.save_h5py and p_id not in existing_doc_ids:
                 existing_doc_ids.add(p_id)
@@ -247,13 +318,13 @@ def process_sqa_split(
                 p_h5_file["codes"].resize(new_size, axis=0)
                 p_h5_file["counts"].resize(new_size, axis=0)
                 p_h5_file["text"].resize(new_size, axis=0)
-                
+
                 # Add new data
                 p_h5_file["ids"][current_size] = p_id
                 p_h5_file["codes"][current_size] = p_merged_code.long().numpy()
                 p_h5_file["counts"][current_size] = p_counts.long().numpy()
                 p_h5_file["text"][current_size] = p_text
-    
+
     # Close h5py files if used
     if config.save_h5py:
         q_h5_file.close()
@@ -286,7 +357,7 @@ def setup_odqa_directories(config: Config, splits: list[str]):
     for split in splits:
         os.makedirs(os.path.join(config.output_dir, f"{split}_code"), exist_ok=True)
     os.makedirs(os.path.join(config.output_dir, "document_code"), exist_ok=True)
-    
+
     # Ensure the output directory exists for h5py files
     os.makedirs(config.output_dir, exist_ok=True)
 
@@ -307,44 +378,56 @@ def process_librispeech(config: Config, extractor, apply_kmeans: ApplyKmeans):
     fname_list = []
 
     logger.info(f"Processing {len(flac_files)} files for LibriLight 6k dataset")
-    
+
     # Setup h5py file if needed
     if config.save_h5py:
         str_dtype = h5py.string_dtype(encoding="utf-8")
         vlen_int_dtype = h5py.vlen_dtype(np.int32)
-        
-        h5_file = h5py.File(os.path.join(config.output_dir, "librispeech.h5"), "w")
-        ids_dataset = h5_file.create_dataset("ids", shape=(len(flac_files),), dtype=str_dtype)
-        codes_dataset = h5_file.create_dataset("codes", shape=(len(flac_files),), dtype=vlen_int_dtype)
-        counts_dataset = h5_file.create_dataset("counts", shape=(len(flac_files),), dtype=vlen_int_dtype)
 
-    for idx, flac_file in enumerate(tqdm(flac_files, desc="Processing LibriSpeech dataset")):
+        h5_file = h5py.File(os.path.join(config.output_dir, "librispeech.h5"), "w")
+        ids_dataset = h5_file.create_dataset(
+            "ids", shape=(len(flac_files),), dtype=str_dtype
+        )
+        codes_dataset = h5_file.create_dataset(
+            "codes", shape=(len(flac_files),), dtype=vlen_int_dtype
+        )
+        counts_dataset = h5_file.create_dataset(
+            "counts", shape=(len(flac_files),), dtype=vlen_int_dtype
+        )
+
+    for idx, flac_file in enumerate(
+        tqdm(flac_files, desc="Processing LibriSpeech dataset")
+    ):
         flac_fname = os.path.basename(flac_file)
         file_code_path = os.path.join(config.output_dir, f"{flac_fname}.code")
-        
+
         # Skip if already processed and only saving to code files
         if os.path.exists(file_code_path) and not config.save_h5py:
             fname_list.append(flac_fname)
             continue
-        
+
         # Process audio if needed for either format
         wav, sr = torchaudio.load(flac_file)
         if sr != config.sample_rate:
             wav = torchaudio.transforms.Resample(sr, config.sample_rate)(wav)
         wav = wav.squeeze()
-        merged_code, counts = extract_discrete_code(wav, config, extractor, apply_kmeans)
-        
+        merged_code, counts = extract_discrete_code(
+            wav, config, extractor, apply_kmeans
+        )
+
         # Save to .code file if needed
         if config.save_code and not os.path.exists(file_code_path):
             np.savetxt(file_code_path, merged_code.long(), fmt="%i")
             np.savetxt(
-                os.path.join(config.output_dir, f"{flac_fname}.cnt"), counts.long(), fmt="%i"
+                os.path.join(config.output_dir, f"{flac_fname}.cnt"),
+                counts.long(),
+                fmt="%i",
             )
-        
+
         # Always add to fname_list if processed
         if flac_fname not in fname_list:
             fname_list.append(flac_fname)
-        
+
         # Save to h5py if enabled
         if config.save_h5py:
             ids_dataset[idx] = flac_fname
@@ -354,13 +437,15 @@ def process_librispeech(config: Config, extractor, apply_kmeans: ApplyKmeans):
     # Save the list of file names
     with open(os.path.join(config.output_dir, "fname_list.json"), "w") as f:
         json.dump(fname_list, f)
-    
+
     # Close h5py file if used
     if config.save_h5py:
         h5_file.close()
 
 
-def process_all_documents(dataset, config: Config, extractor, apply_kmeans: ApplyKmeans):
+def process_all_documents(
+    dataset, config: Config, extractor, apply_kmeans: ApplyKmeans
+):
     """
     Process all documents from all splits into a unified document set.
     """
@@ -373,35 +458,43 @@ def process_all_documents(dataset, config: Config, extractor, apply_kmeans: Appl
             if p_id not in all_documents:
                 all_documents[p_id] = {
                     "wavs": data["document_audio"]["array"],
-                    "text": data["normalized_document_text"]
+                    "text": data["normalized_document_text"],
                 }
 
     # Setup h5py file for documents if needed
     if config.save_h5py:
         str_dtype = h5py.string_dtype(encoding="utf-8")
         vlen_int_dtype = h5py.vlen_dtype(np.int32)
-        
+
         p_h5_path = os.path.join(config.output_dir, "documents.h5")
         p_h5_file = h5py.File(p_h5_path, "w")
         p_h5_file.create_dataset("ids", shape=(len(all_documents),), dtype=str_dtype)
-        p_h5_file.create_dataset("codes", shape=(len(all_documents),), dtype=vlen_int_dtype)
-        p_h5_file.create_dataset("counts", shape=(len(all_documents),), dtype=vlen_int_dtype)
+        p_h5_file.create_dataset(
+            "codes", shape=(len(all_documents),), dtype=vlen_int_dtype
+        )
+        p_h5_file.create_dataset(
+            "counts", shape=(len(all_documents),), dtype=vlen_int_dtype
+        )
         p_h5_file.create_dataset("text", shape=(len(all_documents),), dtype=str_dtype)
 
     # Process each document
-    for idx, (p_id, doc_data) in enumerate(tqdm(all_documents.items(), desc="Processing documents")):
+    for idx, (p_id, doc_data) in enumerate(
+        tqdm(all_documents.items(), desc="Processing documents")
+    ):
         p_wavs = doc_data["wavs"]
         p_text = doc_data["text"]
         p_code_path = os.path.join(config.output_dir, "document_code", f"{p_id}.code")
 
         # Process document if needed
-        p_should_process = (config.save_code and not os.path.exists(p_code_path)) or config.save_h5py
+        p_should_process = (
+            config.save_code and not os.path.exists(p_code_path)
+        ) or config.save_h5py
         if p_should_process:
             p_tensor = torch.FloatTensor(p_wavs)
             p_merged_code, p_counts = extract_discrete_code(
                 p_tensor, config, extractor, apply_kmeans
             )
-            
+
             # Save to .code file if needed
             if config.save_code and not os.path.exists(p_code_path):
                 np.savetxt(p_code_path, p_merged_code.long(), fmt="%i")
@@ -412,11 +505,13 @@ def process_all_documents(dataset, config: Config, extractor, apply_kmeans: Appl
                 )
                 # Save transcription
                 with open(
-                    os.path.join(config.output_dir, "document_code", f"{p_id}.trans.txt"),
+                    os.path.join(
+                        config.output_dir, "document_code", f"{p_id}.trans.txt"
+                    ),
                     "w",
                 ) as trans_file:
                     trans_file.write(p_text)
-            
+
             # Save to h5py if enabled
             if config.save_h5py:
                 p_h5_file["ids"][idx] = p_id
@@ -429,24 +524,36 @@ def process_all_documents(dataset, config: Config, extractor, apply_kmeans: Appl
         p_h5_file.close()
 
 
-def process_sqa_split_questions(split: str, dataset, config: Config, extractor, apply_kmeans: ApplyKmeans):
+def process_sqa_split_questions(
+    split: str, dataset, config: Config, extractor, apply_kmeans: ApplyKmeans
+):
     """
     Process questions for a specific split of the SQA dataset.
     Documents are already processed and stored in the unified document set.
     """
     files = dataset[split]
-    
+
     # Setup h5py file for questions if needed
     if config.save_h5py:
         str_dtype = h5py.string_dtype(encoding="utf-8")
         vlen_int_dtype = h5py.vlen_dtype(np.int32)
-        
+
         q_h5_file = h5py.File(os.path.join(config.output_dir, f"{split}.h5"), "w")
-        q_id_dataset = q_h5_file.create_dataset("ids", shape=(len(files),), dtype=str_dtype)
-        q_code_dataset = q_h5_file.create_dataset("codes", shape=(len(files),), dtype=vlen_int_dtype)
-        q_counts_dataset = q_h5_file.create_dataset("counts", shape=(len(files),), dtype=vlen_int_dtype)
-        q_text_dataset = q_h5_file.create_dataset("text", shape=(len(files),), dtype=str_dtype)
-        q_doc_id_dataset = q_h5_file.create_dataset("doc_ids", shape=(len(files),), dtype=str_dtype)
+        q_id_dataset = q_h5_file.create_dataset(
+            "ids", shape=(len(files),), dtype=str_dtype
+        )
+        q_code_dataset = q_h5_file.create_dataset(
+            "codes", shape=(len(files),), dtype=vlen_int_dtype
+        )
+        q_counts_dataset = q_h5_file.create_dataset(
+            "counts", shape=(len(files),), dtype=vlen_int_dtype
+        )
+        q_text_dataset = q_h5_file.create_dataset(
+            "text", shape=(len(files),), dtype=str_dtype
+        )
+        q_doc_id_dataset = q_h5_file.create_dataset(
+            "doc_ids", shape=(len(files),), dtype=str_dtype
+        )
 
     for idx, data in enumerate(tqdm(files, desc=f"Processing {split} questions")):
         q_wavs = data["question_audio"]["array"]
@@ -457,13 +564,15 @@ def process_sqa_split_questions(split: str, dataset, config: Config, extractor, 
         q_code_path = os.path.join(config.output_dir, f"{split}_code", f"{q_id}.code")
 
         # Process question if needed
-        q_should_process = (config.save_code and not os.path.exists(q_code_path)) or config.save_h5py
+        q_should_process = (
+            config.save_code and not os.path.exists(q_code_path)
+        ) or config.save_h5py
         if q_should_process:
             q_tensor = torch.FloatTensor(q_wavs)
             q_merged_code, q_counts = extract_discrete_code(
                 q_tensor, config, extractor, apply_kmeans
             )
-            
+
             # Save to .code file if needed
             if config.save_code and not os.path.exists(q_code_path):
                 np.savetxt(q_code_path, q_merged_code.long(), fmt="%i")
@@ -474,11 +583,13 @@ def process_sqa_split_questions(split: str, dataset, config: Config, extractor, 
                 )
                 # Save transcription
                 with open(
-                    os.path.join(config.output_dir, f"{split}_code", f"{q_id}.trans.txt"),
+                    os.path.join(
+                        config.output_dir, f"{split}_code", f"{q_id}.trans.txt"
+                    ),
                     "w",
                 ) as trans_file:
                     trans_file.write(q_text)
-            
+
             # Save to h5py if enabled
             if config.save_h5py:
                 q_id_dataset[idx] = q_id
@@ -528,20 +639,30 @@ def parse_args():
         help="Task to process (slue_sqa5/librispeech)",
     )
     parser.add_argument(
-        "--save_format", 
+        "--save_format",
         type=str,
         choices=["code", "h5py", "both"],
         default="h5py",
-        help="Format to save data: 'code' for individual files, 'h5py' for h5py format, or 'both' for both formats"
+        help="Format to save data: 'code' for individual files, 'h5py' for h5py format, or 'both' for both formats",
+    )
+    parser.add_argument(
+        "--use_vad",
+        action="store_true",
+        help="Use Voice Activity Detection to remove silence before processing",
+    )
+    parser.add_argument(
+        "--vad_threshold",
+        type=float,
+        default=0.5,
+        help="Threshold for VAD speech detection (default: 0.5)",
     )
 
     return parser.parse_args()
 
 
 def main():
-    # Parse arguments
     args = parse_args()
-
+    
     # Create config
     config = Config(
         km_path=args.km_path,
@@ -552,6 +673,8 @@ def main():
         device=args.device,
         task=args.task,
         save_format=args.save_format,
+        use_vad=args.use_vad,
+        vad_threshold=args.vad_threshold,
     )
 
     # Load dataset (example: SLUE SQA5)

@@ -1,12 +1,11 @@
 #!/bin/bash
-# run_qformer.sh — launch Q-Former-T5 on SLUE-SQA-5
+# run_qformer_whisper.sh — launch Q-Former-T5 on SLUE-SQA-5 using Whisper features
 # Usage: edit the flags below, then:
-#   bash run_qformer.sh
+#   bash run_qformer_whisper.sh
 python3 run_qformer.py \
   --model_name "google/flan-t5-base" \
-  --run_name "slue_sqa5-flan-t5-base-qformer-N1-D2-L17-S17-du-l22-c500-fte" \
-  --output_dir "models/slue_sqa5-flan-t5-base-qformer-N1-D2-L17-S17-du-l22-c500-fte" \
-  --max_length 272 \
+  --run_name "slue_sqa5-flan-t5-base-qformer-whisper-N1-D2-L17-S17" \
+  --output_dir "models/slue_sqa5-flan-t5-base-qformer-whisper-N1-D2-L17-S17" \
   --learning_rate 1e-4 \
   --warmup_steps 5000 \
   --per_device_train_batch_size 36 \
@@ -25,26 +24,21 @@ python3 run_qformer.py \
   --logging_steps 50 \
   --dataloader_num_workers 0 \
   --dataloader_drop_last False \
-  --dataset_path "/home/ricky/dodofk/dataset/slue_sqa5/" \
-  --code_path "/home/ricky/dodofk/dataset/slue_sqa_code_l22_c500" \
-  --discrete_code_num 500 \
-  --special_token 32000 \
   --d_model_front 768 \
   --n_queries 1 \
   --qformer_depth 2 \
   --win_size_f 17 \
   --win_stride_f 17 \
   --freeze_t5_encoder False \
-  --save_safetensors False \
   --model_type "qformer" \
-  --use_whisper_features False \
+  --use_whisper_features True \
   --whisper_model_name "openai/whisper-base" \
   --device "cuda" \
-  --apply_spec_augment False \
+  --apply_spec_augment True \
   --time_warp_param 80 \
   --freq_mask_param 27 \
   --time_mask_param 100 \
-  --run_note "Train flant5-base + qformer with 500 discrete unit on layer 22 with 1 query per window and 17 window size and 17 window stride" \
-  --debug_max_samples 500
+  --debug_max_samples 500 \
+  --run_note "Train flant5-base + qformer with Whisper features, 1 query per window, 17 window size and 17 window stride"
 
-echo "✅ run_qformer.sh completed."
+echo "✅ run_qformer_whisper.sh completed." 

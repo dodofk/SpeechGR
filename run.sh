@@ -21,9 +21,9 @@ set -e  # Exit immediately if a command exits with a non-zero status
 echo "Step 2: Running DSI model training with run.py"
 python3 run.py \
     --model_name "google/flan-t5-base" \
-    --run_name "slue_sqa5-flan-t5-base-DSI-QG-q&d-both-du-l22-c500-wpt-d128" \
-    --max_length 128 \
-    --output_dir "models/slue_sqa5-flan-t5-base-DSI-QG-q&d-both-du-l22-c500-wpt-d128" \
+    --run_name "slue_sqa5-flan-t5-base-DSI-QG-q&d-both-du-l22-c500-wpt-d512" \
+    --max_length 512 \
+    --output_dir "models/slue_sqa5-flan-t5-base-DSI-QG-q&d-both-du-l22-c500-wpt-d512" \
     --learning_rate 0.0001 \
     --warmup_steps 10000 \
     --per_device_train_batch_size 16 \
@@ -43,7 +43,7 @@ python3 run.py \
     --metric_for_best_model Hits@20 \
     --greater_is_better True \
     --save_safetensors True \
-    --run_note "fine-tune on flan-t5 with 500 cluster discrete unit on layer 22 with pretrain checkpoint with document max length 128 " \
+    --run_note "fine-tune on flan-t5 with 500 cluster discrete unit on layer 22 with pretrain checkpoint with document max length 512 " \
     --code_path "/home/ricky/dodofk/dataset/slue_sqa_code_l22_c500" \
     --discrete_code_num 500 \
     --bf16 True \

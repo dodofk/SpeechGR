@@ -14,11 +14,12 @@ import tempfile
 import numpy as np
 from tqdm import tqdm
 
-VOCAB_SIZE = 2000
-code_dir = "/home/ricky/dodofk/dataset/slue_sqa_code_l22_c1000"
+VOCAB_SIZE = 1000
+code_dir = "/home/ricky/dodofk/dataset/slue_sqa_code_l22_c500"
 code_files = glob.glob(os.path.join(code_dir, "*/*.code"))
-transform_code_dir = "/home/ricky/dodofk/dataset/slue_sqa_code_l22_c1000_bpe"
-model_prefix = "bpe_model/slue_sqa_code_l22_c1000"
+# print("Code_dir: ", code_dir, "first 5 files: ", code_files[:5])
+transform_code_dir = "/home/ricky/dodofk/dataset/slue_sqa_code_l22_c500_bpe"
+model_prefix = "bpe_model/slue_sqa_code_l22_c500"
 
 split_code_name = [
     "train_code",

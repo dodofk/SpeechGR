@@ -5,7 +5,16 @@ export FAIRSEQ_ROOT=/home/ricky/dodofk/fairseq
 # wget https://dl.fbaipublicfiles.com/hubert/hubert_large_ll60k.pt
 
 # wget https://dl.fbaipublicfiles.com/fairseq/wav2vec/libri960_big.pt
-# python3 $FAIRSEQ_ROOT/examples/hubert/simple_kmeans/dump_hubert_feature.py /home/ricky/dodofk/dataset/LibriSpeech/train-clean-100 train hubert_large_ll60k.pt 22 1 0 ./hubert_22;
+Layer = 22
+K = 1000
+feature_dir = hubert_feat_layer_$Layer
+python3 $FAIRSEQ_ROOT/examples/hubert/simple_kmeans/dump_hubert_feature.py /home/ricky/dodofk/dataset/LibriSpeech/train-clean-100 train hubert_large_ll60k.pt $Layer 1 0 $feature_dir
 # python3 $FAIRSEQ_ROOT/examples/hubert/simple_kmeans/dump_w2v2_feature.py /home/daniel094144/data/LibriSpeech/LS100_fairseq train libri960_big.pt 14 1 0 ./w2v2_feat_100_layer_14
 # python3 $FAIRSEQ_ROOT/examples/hubert/simple_kmeans/learn_kmeans.py ./hubert_22 train 1 ./hubert_22_km_512_new 512 --percent -1
-python3 $FAIRSEQ_ROOT/examples/hubert/simple_kmeans/learn_kmeans.py ./hubert_22 train 1 ./hubert_22_km_2000 2000 --percent -1
+
+
+# convert output hubert_22 from shell variable 
+kmeans_output_dir= hubert_22_km_$K``
+
+python3 $FAIRSEQ_ROOT/examples/hubert/simple_kmeans/learn_kmeans.py ./hubert_22 train 1 $kmeans_output_dir $K --percent -1
+# python3 $FAIRSEQ_ROOT/examples/hubert/simple_kmeans/learn_kmeans.py ./hubert_17 train 1 ./hubert_17_km_500 0 --percent -1

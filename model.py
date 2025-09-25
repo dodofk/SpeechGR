@@ -34,9 +34,9 @@ class ContinousEmbT5(T5ForConditionalGeneration):
             The user supplies their own embeddings from SSL or a downsampling step.
           attention_mask: (batch_size, seq_len)
           labels: (batch_size, tgt_seq_len) for seq2seq training
-          kwargs: anything else T5’s forward might expect (like decoder_input_ids, etc.).
+          kwargs: anything else T5's forward might expect (like decoder_input_ids, etc.).
         """
-        # 1) Project the custom input embeddings into T5’s hidden dimension
+        # 1) Project the custom input embeddings into T5's hidden dimension
         if input_embeds is not None:
             input_embeds = self.linear_adapter(input_embeds)
 
@@ -390,10 +390,10 @@ class QFormerEncoderWrapper(nn.Module):
         1) compress long feat seq → (B, S', D) S' is the equals to seq_len / win_stride_f
         2) run (frozen) T5 encoder on compressed sequence
         """
-        if inputs_embeds:
-            latent = self.compressor(inputs_embeds)
-        else:
-            latent = self.compressor(self.shared(input_ids))
+        if inputs_embeds is None:
+            inputs_embeds = self.shared(input_ids)
+
+        latent = self.compressor(inputs_embeds)
 
         return self.base_encoder(
             inputs_embeds=latent, attention_mask=attention_mask, **kwargs
@@ -409,9 +409,10 @@ class QFormerT5(T5ForConditionalGeneration):
     ...     d_model_front=1024,
     ...     win_size_f=17, win_stride_f=17,
     ...     n_queries=1, depth=2,
+    ...     use_whisper_features=True,  # Enable Whisper feature input
     ... )
-    >>> feats = [discrete_unit_1, discrete_unit_2, ...] # use discrete unit as input
-    >>> seq = model.generate(input_ids=input_ids)
+    >>> feats = whisper_features  # continuous Whisper features
+    >>> seq = model.generate(input_features=feats)  # Use input_features for Whisper
     """
 
     def __init__(
@@ -424,6 +425,7 @@ class QFormerT5(T5ForConditionalGeneration):
         n_queries: int = 1,
         depth: int = 2,
         freeze_t5_encoder: bool = True,
+        use_whisper_features: bool = False,  # New parameter to control input type
     ):
         # 1) load vanilla weights
         super().__init__(T5Config.from_pretrained(base_name))
@@ -434,6 +436,7 @@ class QFormerT5(T5ForConditionalGeneration):
         self.win_size_f = win_size_f
         self.win_stride_f = win_stride_f
         self.n_queries = n_queries
+        self.use_whisper_features = use_whisper_features
 
         # 2) build Q-Former compressor (d_model_front may ≠ T5 d_model)
         if d_model_front != self.config.d_model:
@@ -466,7 +469,7 @@ class QFormerT5(T5ForConditionalGeneration):
         """
         Compress a frame-level attention mask (B, Tf) → (B, W*n_q)
 
-        A window is ‘valid’ (mask =1) iff at least one of its `win` frames is 1.
+        A window is 'valid' (mask =1) iff at least one of its `win` frames is 1.
         The flag is then repeated `n_q` times because every window yields n_q
         query tokens.
 
@@ -498,22 +501,30 @@ class QFormerT5(T5ForConditionalGeneration):
         self, input_ids, model_kwargs, model_input_name, generation_config, 
     ):
         # HuggingFace will call this before running the encoder.
-        # model_kwargs contains "attention_mask" (the original frame mask)
-        # and maybe "inputs_embeds" if you passed them to .generate().
+        # Handle both discrete units and Whisper features using inputs_embeds
         frame_mask = model_kwargs.pop("attention_mask", None)
-        ssl_feats  = model_kwargs.pop("inputs_embeds", None)
-
-        # Project ssl_feats if needed
-        if ssl_feats is not None:
-            ssl_feats = self.front_proj(ssl_feats)
+        
+        # For generation, always use inputs_embeds (HuggingFace standard)
+        features = model_kwargs.pop("inputs_embeds", None)
+        if features is not None:
+            features = self.front_proj(features)
 
         # Build the windowed mask
-        window_mask = self._build_window_mask(frame_mask)
+        if frame_mask is not None:
+            window_mask = self._build_window_mask(frame_mask)
+        else:
+            # Create a full mask if no attention mask provided
+            if features is not None:
+                dummy_mask = torch.ones(features.shape[:2], device=features.device)
+                window_mask = self._build_window_mask(dummy_mask)
+            else:
+                window_mask = None
 
         # Now actually run the encoder once and stash `encoder_outputs`
+        # When using inputs_embeds, input_ids should be None
         encoder_outputs = self.encoder(
-            input_ids=input_ids,
-            inputs_embeds=ssl_feats,
+            input_ids=None,  # Set to None when using inputs_embeds
+            inputs_embeds=features,
             attention_mask=window_mask,
         )
 
@@ -526,25 +537,41 @@ class QFormerT5(T5ForConditionalGeneration):
     def forward(
         self,
         input_ids: torch.Tensor = None,
-        inputs_embeds: torch.Tensor = None,  # speech feats
+        inputs_embeds: torch.Tensor = None,  # For discrete units
+        input_features: torch.Tensor = None,  # For Whisper features  
         attention_mask=None,
         **kwargs,
     ):
-        if inputs_embeds:
-            # project if we use ssl feature else using shared embedding and the lookup table deal in QFormerEncoderWrapper
-            proj_embeds = self.front_proj(inputs_embeds)
+        # Determine which type of input to use
+        if self.use_whisper_features and input_features is not None:
+            # Use Whisper features
+            proj_features = self.front_proj(input_features)
+            input_embeds_to_use = proj_features
+        elif inputs_embeds is not None:
+            # Use discrete unit embeddings
+            proj_features = self.front_proj(inputs_embeds)
+            input_embeds_to_use = proj_features
+        else:
+            # Use input_ids with shared embedding lookup
+            input_embeds_to_use = None
 
+        # Handle attention mask and encoder outputs
         if kwargs.get("encoder_outputs", None) is not None:
             new_mask = attention_mask # if we have encoder output which means our attention mask already has window mask
         elif attention_mask is not None:
             new_mask = self._build_window_mask(attention_mask)
         else:
-            print("Info: Potential Error no attention mask or encoder output")
-            new_mask = self._build_full_window_mask(attention_mask)
+            if input_embeds_to_use is not None:
+                # Create dummy mask based on input sequence length
+                dummy_mask = torch.ones(input_embeds_to_use.shape[:2], device=input_embeds_to_use.device)
+                new_mask = self._build_window_mask(dummy_mask)
+            else:
+                print("Info: Potential Error no attention mask or encoder output")
+                new_mask = self._build_full_window_mask(attention_mask)
 
         return super().forward(
             input_ids=input_ids,
-            inputs_embeds=proj_embeds if inputs_embeds else None,
+            inputs_embeds=input_embeds_to_use,
             attention_mask=new_mask,
             **kwargs,
         )
@@ -573,6 +600,7 @@ if __name__ == "__main__":
         win_stride_f=17,
         n_queries=1,
         depth=2,
+        use_whisper_features=False,  # Set to False for discrete units
     ).to("cuda")
     # testing sequence_logprob
     outputs = model(**batch)

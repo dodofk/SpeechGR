@@ -312,7 +312,7 @@ class SlueSQA5DatasetV2(Dataset):
             code = np.concatenate(
                 [[self.special_token], code, [1]]
             )  # Append EOS token (assumed token id 1) # pick token 32000 as an indicate to query task (which is added token for flan t5)
-            if len(code) > self.max_length:
+            if len(code) > 512:
                 # print("Code length is too long, need to be truncated ===========")
                 code = np.concatenate([code[: self.max_length - 1], [1]])
             if self.split == "train":
