@@ -16,7 +16,7 @@ from .collators import (
     WhisperIndexingCollator,
     TextIndexingCollator,
 )
-from .slue_sqa5 import DiscreteUnitDataset, ContinuousDataset
+from .slue_sqa5 import DiscreteUnitDataset, ContinuousDataset, SlueSQA5DatasetV2
 
 __all__ = [
     "BaseSpeechGRDataset",
@@ -33,4 +33,5 @@ __all__ = [
     "TextIndexingCollator",
     "DiscreteUnitDataset",
     "ContinuousDataset",
+    "SlueSQA5DatasetV2",
 ]

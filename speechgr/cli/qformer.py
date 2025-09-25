@@ -93,22 +93,22 @@ def _build_discrete_datasets(cfg: QFormerConfig, data_cfg: DataConfig, model_nam
     train_ds = SlueSQA5DatasetV2(
         split="train",
         max_length=cfg.max_length,
-        model_name_or_path=model_name,
-        code_path=data_cfg.code_path,
         dataset_path=data_cfg.dataset_path,
-        special_token=cfg.special_token,
-        discrete_code_num=cfg.discrete_code_num,
-        lookup_file_name=data_cfg.lookup_file_name,
+        code_path=data_cfg.code_path,
+        encoder_name=data_cfg.encoder_name or "wavtokenizer",
+        include_corpus=data_cfg.include_corpus,
+        train_atomic=data_cfg.train_atomic,
+        atomic_offset=data_cfg.atomic_offset,
     )
     valid_ds = SlueSQA5DatasetV2(
         split="validation",
         max_length=cfg.max_length,
-        model_name_or_path=model_name,
-        code_path=data_cfg.code_path,
         dataset_path=data_cfg.dataset_path,
-        special_token=cfg.special_token,
-        discrete_code_num=cfg.discrete_code_num,
-        lookup_file_name=data_cfg.lookup_file_name,
+        code_path=data_cfg.code_path,
+        encoder_name=data_cfg.encoder_name or "wavtokenizer",
+        include_corpus=False,
+        train_atomic=data_cfg.train_atomic,
+        atomic_offset=data_cfg.atomic_offset,
     )
     collator = IndexingCollator(tokenizer, padding="longest")
     return train_ds, valid_ds, collator

@@ -236,4 +236,37 @@ class ContinuousDataset(SLUESQA5Dataset):
         return tensor
 
 
-__all__ = ["SLUESQA5Dataset", "DiscreteUnitDataset", "ContinuousDataset"]
+class SlueSQA5DatasetV2(DiscreteUnitDataset):
+    """Backwards-compatible wrapper around :class:`DiscreteUnitDataset`."""
+
+    def __init__(
+        self,
+        split: str = "train",
+        *,
+        max_length: int = 512,
+        dataset_path: str,
+        code_path: str,
+        encoder_name: str = "wavtokenizer",
+        include_corpus: bool = True,
+        train_atomic: bool = False,
+        atomic_offset: int = 0,
+        **_: object,
+    ) -> None:
+        super().__init__(
+            split=split,
+            csv_root=dataset_path,
+            cache_root=code_path,
+            encoder_name=encoder_name,
+            include_corpus=include_corpus,
+            max_length=max_length,
+            train_atomic=train_atomic,
+            atomic_offset=atomic_offset,
+        )
+
+
+__all__ = [
+    "SLUESQA5Dataset",
+    "DiscreteUnitDataset",
+    "ContinuousDataset",
+    "SlueSQA5DatasetV2",
+]

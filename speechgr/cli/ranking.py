@@ -74,12 +74,12 @@ def _build_dataset(split: str, data_cfg: DataConfig, model_name: str, max_length
     return SlueSQA5DatasetV2(
         split=split,
         max_length=max_length,
-        model_name_or_path=model_name,
-        code_path=data_cfg.code_path,
         dataset_path=data_cfg.dataset_path,
-        special_token=data_cfg.special_token,
-        discrete_code_num=data_cfg.discrete_code_num,
-        lookup_file_name=data_cfg.lookup_file_name,
+        code_path=data_cfg.code_path,
+        encoder_name=data_cfg.encoder_name or "wavtokenizer",
+        include_corpus=data_cfg.include_corpus,
+        train_atomic=data_cfg.train_atomic,
+        atomic_offset=data_cfg.atomic_offset,
     )
 
 

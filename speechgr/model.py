@@ -584,7 +584,12 @@ if __name__ == "__main__":
     import os
 
     tokenizer = AutoTokenizer.from_pretrained("google/flan-t5-base")
-    dataset = SlueSQA5DatasetV2(split="train", max_length=512, discrete_code_num=500)
+    dataset = SlueSQA5DatasetV2(
+        split="train",
+        max_length=512,
+        dataset_path="outputs/slue_wavtok/csv",
+        code_path="outputs/slue_wavtok/precomputed",
+    )
     collator = IndexingCollator(tokenizer)
     dataloader = DataLoader(dataset, batch_size=4, collate_fn=collator)
 

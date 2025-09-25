@@ -201,16 +201,14 @@ def _build_dataset(
         raise ValueError("code_path must be provided for discrete modality")
 
     return SlueSQA5DatasetV2(
-        model_name_or_path=model_name,
+        **dataset_kwargs,
+        dataset_path=data_cfg.dataset_path,
         code_path=data_cfg.code_path,
-        special_token=data_cfg.special_token,
-        discrete_code_num=data_cfg.discrete_code_num,
-        lookup_file_name=data_cfg.lookup_file_name,
+        encoder_name=data_cfg.encoder_name or "wavtokenizer",
+        include_corpus=data_cfg.include_corpus,
         train_atomic=data_cfg.train_atomic,
         atomic_offset=data_cfg.atomic_offset,
-        **dataset_kwargs,
-        question_cache_file=data_cfg.question_cache_file,
-        document_cache_file=data_cfg.document_cache_file,
+        max_length=max_length,
     )
 
 
