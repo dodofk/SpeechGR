@@ -23,6 +23,7 @@ dependencies = [
     "tqdm",
     "transformers==4.44.2",
     "wandb",
+    "einops",
 ]
 
 [project.optional-dependencies]
