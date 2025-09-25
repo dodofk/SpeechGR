@@ -120,7 +120,7 @@ def _length_statistics(cache_path: Path, value_key: str = "codes") -> Dict[str, 
     }
 
 
-@hydra_main(version_base=None, config_path="../../configs", config_name="prepare/slue_sqa5")
+@hydra_main(version_base=None, config_path="../../configs/prepare", config_name="slue_sqa5")
 def main(cfg: DictConfig) -> None:
     dataset = load_dataset("asapp/slue-phase-2", "sqa5")
 
