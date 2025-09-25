@@ -43,7 +43,7 @@ This ensures the kernel sees the same dependencies as the CLI runners.
 Generate CSV manifests and encoder caches for the SLUE SQA5 splits with:
 
 ```bash
-uv run python -m speechgr.cli.prepare_slue output_root=outputs/slue_wavtok
+UV_PYTHON=3.12 uv run python -m speechgr.cli.prepare_slue output_root=outputs/slue_wavtok
 ```
 
 Override encoder parameters (e.g., switch to HuBERT) via `encoder.question.params.*` and `encoder.document.params.*`.

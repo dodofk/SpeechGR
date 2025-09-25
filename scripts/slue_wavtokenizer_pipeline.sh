@@ -10,9 +10,10 @@ OUTPUT_ROOT="outputs/slue_wavtok"
 
 CSV_ROOT="$OUTPUT_ROOT/csv"
 CACHE_ROOT="$OUTPUT_ROOT/precomputed"
+UV_PYTHON_VERSION="3.12"
 
 # 1. Generate CSV manifests and precompute discrete units (uses GPU by default).
-uv run python -m speechgr.cli.prepare_slue \
+UV_PYTHON=$UV_PYTHON_VERSION uv run python -m speechgr.cli.prepare_slue \
   encoder.name=wavtokenizer \
   encoder.question.params.config_path="$CONFIG_PATH" \
   encoder.question.params.model_path="$MODEL_PATH" \
@@ -23,7 +24,7 @@ uv run python -m speechgr.cli.prepare_slue \
   output_root="$OUTPUT_ROOT"
 
 # 2. Train retrieval on the cached discrete units.
-uv run python -m speechgr.cli.train \
+UV_PYTHON=$UV_PYTHON_VERSION uv run python -m speechgr.cli.train \
   task=retrieval \
   data.modality=discrete_precomputed \
   data.dataset_path="$CSV_ROOT" \
