@@ -2,17 +2,19 @@ output_root: outputs/slue_sqa5
 
 encoder:
   name: wavtokenizer
+  params:
+    device: cuda
   question:
     params:
       config_path: inventory/WavTokenizer/configs/wavtokenizer_smalldata_frame75_3s_nq1_code4096_dim512_kmeans200_attn.yaml
       model_path: inventory/WavTokenizer/wavtokenizer_large_speech_320_v2.ckpt
       audio_field: question_audio
       sample_id_field: question_id
-      device: cpu
+      device: ${encoder.params.device}
   document:
     params:
       config_path: ${encoder.question.params.config_path}
       model_path: ${encoder.question.params.model_path}
       audio_field: document_audio
       sample_id_field: document_id
-      device: cpu
+      device: ${encoder.params.device}
