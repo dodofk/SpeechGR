@@ -1,13 +1,5 @@
 """Datasets and collators for SpeechGR."""
 
-from .datasets import (
-    BaseSpeechGRDataset,
-    SlueSQA5DatasetV2,
-    SlueSQA5DatasetContinuous,
-    SlueSQA5TextDataset,
-    SlueSQA5WhisperDataset,
-    SpecAugmentLB,
-)
 from .collators import (
     IndexingCollator,
     IndexingCollatorWithAtomic,
@@ -16,15 +8,15 @@ from .collators import (
     WhisperIndexingCollator,
     TextIndexingCollator,
 )
-from .slue_sqa5 import DiscreteUnitDataset, ContinuousDataset, SlueSQA5DatasetV2
+from .slue_sqa5 import (
+    DiscreteUnitDataset,
+    ContinuousDataset,
+    SlueSQA5DatasetV2,
+    SlueSQA5TextDataset,
+    SlueSQA5WhisperDataset,
+)
 
 __all__ = [
-    "BaseSpeechGRDataset",
-    "SlueSQA5DatasetV2",
-    "SlueSQA5DatasetContinuous",
-    "SlueSQA5TextDataset",
-    "SlueSQA5WhisperDataset",
-    "SpecAugmentLB",
     "IndexingCollator",
     "IndexingCollatorWithAtomic",
     "IndexingCollatorWithMetadata",
@@ -34,4 +26,6 @@ __all__ = [
     "DiscreteUnitDataset",
     "ContinuousDataset",
     "SlueSQA5DatasetV2",
+    "SlueSQA5TextDataset",
+    "SlueSQA5WhisperDataset",
 ]
