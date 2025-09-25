@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import csv
+import json
 from pathlib import Path
 from typing import Dict, Iterable, Iterator, Mapping
 
 from datasets import load_dataset
 from hydra import main as hydra_main
 from omegaconf import DictConfig, OmegaConf
+
+import torch
 
 from speechgr.encoders.registry import get_encoder_class
 
@@ -94,6 +97,29 @@ def _instantiate_encoder(name: str, params: Dict[str, object]):
     return encoder_cls(**params)
 
 
+def _length_statistics(cache_path: Path, value_key: str = "codes") -> Dict[str, float]:
+    cache = torch.load(cache_path, map_location="cpu")
+    lengths = []
+    for entry in cache.values():
+        payload = entry
+        if isinstance(payload, dict):
+            payload = payload[value_key]
+        tensor = payload if isinstance(payload, torch.Tensor) else torch.tensor(payload)
+        lengths.append(int(tensor.numel()))
+
+    if not lengths:
+        return {"count": 0, "mean": 0.0, "std": 0.0, "min": 0, "max": 0}
+
+    arr = torch.tensor(lengths, dtype=torch.float32)
+    return {
+        "count": int(arr.numel()),
+        "mean": float(arr.mean().item()),
+        "std": float(arr.std(unbiased=False).item()),
+        "min": int(arr.min().item()),
+        "max": int(arr.max().item()),
+    }
+
+
 @hydra_main(version_base=None, config_path="../../configs", config_name="prepare/slue_sqa5")
 def main(cfg: DictConfig) -> None:
     dataset = load_dataset("asapp/slue-phase-2", "sqa5")
@@ -118,14 +144,23 @@ def main(cfg: DictConfig) -> None:
     question_encoder = _instantiate_encoder(cfg.encoder.name, question_params)
     document_encoder = _instantiate_encoder(cfg.encoder.name, document_params)
 
+    stats: Dict[str, Dict[str, Dict[str, float]]] = {"question": {}, "corpus": {}}
+
     for split in _SPLITS:
         split_dir = _ensure_dir(precompute_dir / split)
         _precompute_split(question_encoder, split, dataset[split], split_dir)
         question_encoder.clear_cache()
+        cache_path = split_dir / f"{split}_{cfg.encoder.name}.pt"
+        stats["question"][split] = _length_statistics(cache_path)
 
     corpus_dir = _ensure_dir(precompute_dir / "corpus")
     _precompute_corpus(document_encoder, dataset, corpus_dir)
     document_encoder.clear_cache()
+    stats["corpus"] = _length_statistics(corpus_dir / f"corpus_{cfg.encoder.name}.pt")
+
+    stats_path = output_root / "stats.json"
+    stats_path.write_text(json.dumps(stats, indent=2))
+    print(f"Wrote code length statistics to {stats_path}")
 
 
 if __name__ == "__main__":
