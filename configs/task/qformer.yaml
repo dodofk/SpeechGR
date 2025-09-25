@@ -1,0 +1,17 @@
+defaults:
+  - data: slue_sqa5_l22_c500
+  - model: qformer_t5
+  - training: qformer_base
+  - logging: wandb
+  - _self_
+
+task: qformer
+
+qformer:
+  max_length: 272
+  id_max_length: 128
+  discrete_code_num: 500
+  special_token: 32000
+  run_notes: "Train flan-t5 + Q-Former on SLUE-SQA discrete units"
+  top_k: 10
+  num_return_sequences: 10

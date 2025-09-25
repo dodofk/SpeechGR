@@ -1,0 +1,17 @@
+encoder:
+  name: hubert_kmeans
+  params:
+    ckpt_path: "/path/to/hubert_base_ls960.pt"
+    kmeans_path: "/path/to/hubert_kmeans.joblib"
+    layer: 6
+    device: "cuda"
+    audio_field: "question_audio"
+    sample_id_field: "question_id"
+    fairseq_root: "./fairseq"
+
+dataset:
+  name: "asapp/slue-phase-2"
+  config: "sqa5"
+  split: "train"
+
+output_dir: "precomputed/hubert/question"

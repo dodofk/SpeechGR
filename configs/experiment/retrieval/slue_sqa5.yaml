@@ -1,0 +1,39 @@
+defaults:
+  - override /task: retrieval
+  - _self_
+
+model:
+  model_name: "google/flan-t5-base"
+  model_path: "ckpts/audio-t5-pt-flant5-base-c500-l22/checkpoint-219000"
+
+data:
+  code_path: "/home/ricky/dodofk/dataset/slue_sqa_code_l22_c500"
+  discrete_code_num: 500
+  train_atomic: false
+
+training:
+  training_args:
+    output_dir: "models/slue_sqa5-flan-t5-base-DSI-QG-q&d-both-du-l22-c500-wpt-d512"
+    run_name: "slue_sqa5-flan-t5-base-DSI-QG-q&d-both-du-l22-c500-wpt-d512"
+    learning_rate: 1.0e-4
+    warmup_steps: 10000
+    per_device_train_batch_size: 16
+    per_device_eval_batch_size: 8
+    evaluation_strategy: "steps"
+    eval_steps: 2500
+    max_steps: 100000
+    save_strategy: "steps"
+    save_steps: 2500
+    save_total_limit: 4
+    load_best_model_at_end: true
+    gradient_accumulation_steps: 8
+    logging_steps: 200
+    dataloader_num_workers: 0
+    dataloader_drop_last: false
+    metric_for_best_model: "Hits@20"
+    greater_is_better: true
+    save_safetensors: true
+    bf16: true
+
+run:
+  run_notes: "fine-tune on flan-t5 with 500 cluster discrete units on layer 22 with pretrain checkpoint"

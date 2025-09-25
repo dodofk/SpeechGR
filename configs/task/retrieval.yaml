@@ -1,0 +1,15 @@
+defaults:
+  - data: slue_sqa5_c512
+  - model: flan_t5_base
+  - training: run_base
+  - logging: wandb
+  - _self_
+
+task: retrieval
+
+run:
+  max_length: 512
+  id_max_length: 128
+  top_k: 10
+  num_return_sequences: 10
+  run_notes: "fine-tune on flan-t5 with 500 cluster discrete units on layer 22"

@@ -1,0 +1,15 @@
+defaults:
+  - data: slue_sqa5_l22_c500
+  - model: flan_t5_base
+  - training: ranking_base
+  - logging: wandb
+  - _self_
+
+task: ranking
+
+ranking:
+  max_length: 512
+  id_max_length: 128
+  run_notes: "fine-tune flan-t5 with ranking loss"
+  do_inference: false
+  do_debug: false

@@ -1,0 +1,37 @@
+defaults:
+  - override /task: qg
+  - _self_
+
+model:
+  model_name_or_path: "google/flan-t5-base"
+  final_model_dir: "models/qg/flan-t5-base-slue"
+  special_token: 32000
+
+data:
+  dataset_path: "/home/ricky/dodofk/dataset/slue_sqa5/"
+  code_path: "/home/ricky/dodofk/dataset/slue_sqa_code_c512"
+  split: "train"
+  max_length: 512
+  discrete_code_num: 512
+  lookup_file_name: "/home/ricky/dodofk/dataset/slue_sqa5/flan-t5-base-unused_tokens.txt"
+
+wandb:
+  project: "Audio-QG"
+  description: "SLUE-SQA query generation"
+
+training:
+  training_args:
+    output_dir: "models/qg/flan-t5-base-slue/checkpoints"
+    run_name: "qg-slue-flan-t5-base"
+    per_device_train_batch_size: 32
+    per_device_eval_batch_size: 16
+    learning_rate: 3e-4
+    num_train_epochs: 5
+    evaluation_strategy: "steps"
+    eval_steps: 1000
+    save_strategy: "steps"
+    save_steps: 1000
+    save_total_limit: 3
+    logging_steps: 100
+    generation_max_length: 64
+    generation_num_beams: 4

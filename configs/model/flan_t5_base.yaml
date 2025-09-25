@@ -1,0 +1,6 @@
+model_name: "google/flan-t5-base"
+model_path: null
+train_continuous_embedding: false
+ssl_feat_dim: 1024
+downsample_factor: 2
+hidden_dim: 768

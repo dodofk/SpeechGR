@@ -1,3 +1,4 @@
+# Managed by uv via pyproject.toml; retained for reference only.
 torch
 torchaudio
 joblib
@@ -13,4 +14,4 @@ librosa
 soundfile
 h5py
 evaluate
-rouge-score # for qg evaluation
+rouge-score

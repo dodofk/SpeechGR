@@ -1,0 +1,7 @@
+dataset_path: "/home/ricky/dodofk/dataset/slue_sqa5/"
+code_path: "/home/ricky/dodofk/dataset/slue_sqa_code_c512"
+lookup_file_name: null
+special_token: 32000
+discrete_code_num: 500
+train_atomic: false
+atomic_offset: 50

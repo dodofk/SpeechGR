@@ -1,0 +1,22 @@
+defaults:
+  - training: t5_pretrain_base
+  - _self_
+
+task: t5_pretrain
+
+model:
+  model_name_or_path: "google/flan-t5-base"
+  final_model_dir: "models/t5-pretrain/flan-t5-base"
+  sentinel_start_id: 32000
+
+data:
+  code_dir: "/home/ricky/dodofk/dataset/slue_sqa_code_c512"
+  seq_length: 512
+  chunk_offset: 50
+  discrete_code_num: 512
+  mask_prob: 0.15
+  mean_span_length: 3
+
+wandb:
+  project: "Audio-T5-Pretrain"
+  description: null

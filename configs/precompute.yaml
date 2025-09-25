@@ -1,0 +1,16 @@
+encoder:
+  name: whisper
+  params:
+    whisper_model_name: "openai/whisper-base"
+    device: "cuda"
+    apply_spec_augment: true
+    time_warp_param: 80
+    freq_mask_param: 27
+    time_mask_param: 100
+
+dataset:
+  name: "asapp/slue-phase-2"
+  config: "sqa5"
+  split: "train"
+
+output_dir: "precomputed/whisper"

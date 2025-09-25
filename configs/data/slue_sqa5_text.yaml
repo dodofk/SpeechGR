@@ -1,0 +1,13 @@
+modality: text
+dataset_path: "/home/ricky/dodofk/dataset/slue_sqa5/"
+pq_filename: "slue_sqa5_pq10_llama32_3b_clean.csv"
+corpus_filename: "slue_sqa5_corpus.csv"
+text_tokenizer_name: "google/flan-t5-base"
+query_text_field:
+  - "post_query"
+  - "question_text"
+corpus_text_field:
+  - "normalized_document_text"
+  - "document_text"
+train_atomic: false
+include_corpus: true

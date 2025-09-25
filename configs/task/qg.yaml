@@ -1,0 +1,23 @@
+defaults:
+  - training: qg_base
+  - _self_
+
+task: qg
+
+model:
+  model_name_or_path: "google/flan-t5-base"
+  final_model_dir: "models/qg/flan-t5-base"
+  special_token: 32000
+  model_path: null
+
+data:
+  dataset_path: "/home/ricky/dodofk/dataset/slue_sqa5/"
+  code_path: "/home/ricky/dodofk/dataset/slue_sqa_code_c512"
+  split: "train"
+  max_length: 512
+  discrete_code_num: 512
+  lookup_file_name: "/home/ricky/dodofk/dataset/slue_sqa5/flan-t5-base-unused_tokens.txt"
+
+wandb:
+  project: "Audio-QG"
+  description: null

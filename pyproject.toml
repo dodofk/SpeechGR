@@ -1,0 +1,41 @@
+[project]
+name = "speechgr"
+version = "0.1.0"
+description = "Speech-grounded generative retrieval experiments"
+readme = "README.md"
+requires-python = "~=3.12"
+authors = [{ name = "SpeechGR Contributors" }]
+dependencies = [
+    "accelerate",
+    "datasets",
+    "evaluate",
+    "hydra-core>=1.3",
+    "ipykernel>=6.30.1",
+    "joblib",
+    "librosa",
+    "numpy",
+    "pandas",
+    "rouge-score",
+    "sentencepiece",
+    "soundfile",
+    "torch",
+    "torchaudio",
+    "tqdm",
+    "transformers==4.44.2",
+    "wandb",
+]
+
+[project.optional-dependencies]
+whisper = ["soundfile", "torchaudio"]
+dev = ["black", "isort", "pytest"]
+
+[build-system]
+requires = ["setuptools", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.uv]
+managed = true
+python = "3.12"
+
+[tool.setuptools.packages.find]
+where = ["."]

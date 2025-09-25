@@ -1,0 +1,18 @@
+training_args:
+  output_dir: "models/t5-pretrain"
+  run_name: "t5-pretrain"
+  per_device_train_batch_size: 32
+  per_device_eval_batch_size: 32
+  learning_rate: 1e-4
+  warmup_steps: 1000
+  num_train_epochs: 5
+  evaluation_strategy: "steps"
+  eval_steps: 1000
+  save_strategy: "steps"
+  save_steps: 1000
+  save_total_limit: 4
+  logging_steps: 100
+  report_to:
+    - wandb
+  gradient_accumulation_steps: 1
+  bf16: true

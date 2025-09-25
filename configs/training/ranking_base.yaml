@@ -1,0 +1,24 @@
+training_args:
+  output_dir: "models/slue_sqa5-flan-t5-base-DSI-Ranking"
+  run_name: "slue_sqa5-flan-t5-base-ranking"
+  max_steps: 100000
+  per_device_train_batch_size: 20
+  per_device_eval_batch_size: 8
+  evaluation_strategy: "steps"
+  eval_steps: 2500
+  save_strategy: "steps"
+  save_steps: 2500
+  save_total_limit: 4
+  load_best_model_at_end: true
+  learning_rate: 0.0001
+  warmup_steps: 10000
+  gradient_accumulation_steps: 8
+  dataloader_num_workers: 0
+  dataloader_drop_last: false
+  logging_steps: 100
+  report_to:
+    - wandb
+  bf16: true
+  save_safetensors: true
+  metric_for_best_model: "Hits@20"
+  greater_is_better: true

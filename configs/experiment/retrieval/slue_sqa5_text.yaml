@@ -1,0 +1,13 @@
+defaults:
+  - override /data: slue_sqa5_text
+  - override /model: flan_t5_base
+  - override /training: run_base
+  - override /logging: wandb
+  - _self_
+
+run:
+  max_length: 512
+  id_max_length: 128
+  top_k: 10
+  num_return_sequences: 10
+  run_notes: "text modality baseline using transcript queries"

@@ -1,0 +1,10 @@
+defaults:
+  - task: retrieval
+  - _self_
+
+seed: 42
+
+hydra:
+  run:
+    dir: .
+  output_subdir: null

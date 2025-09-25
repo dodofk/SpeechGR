@@ -1,0 +1,21 @@
+training_args:
+  output_dir: "models/qg"
+  run_name: "qg-baseline"
+  per_device_train_batch_size: 16
+  per_device_eval_batch_size: 8
+  learning_rate: 3e-4
+  num_train_epochs: 3
+  evaluation_strategy: "steps"
+  eval_steps: 2000
+  save_strategy: "steps"
+  save_steps: 2000
+  save_total_limit: 3
+  logging_steps: 100
+  report_to:
+    - wandb
+  predict_with_generate: true
+  generation_max_length: 64
+  generation_num_beams: 4
+  load_best_model_at_end: true
+  metric_for_best_model: "rougeL"
+  greater_is_better: true

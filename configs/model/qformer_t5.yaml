@@ -1,0 +1,17 @@
+model_type: "qformer"
+model_name: "google/flan-t5-base"
+model_path: null
+d_model_front: 768
+n_queries: 1
+qformer_depth: 2
+win_size_f: 17
+win_stride_f: 17
+freeze_t5_encoder: false
+use_whisper_features: false
+whisper_model_name: "openai/whisper-base"
+device: "cuda"
+apply_spec_augment: false
+time_warp_param: 80
+freq_mask_param: 27
+time_mask_param: 100
+debug_max_samples: null
