@@ -15,3 +15,4 @@ soundfile
 h5py
 evaluate
 rouge-score
+einops

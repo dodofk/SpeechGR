@@ -13,7 +13,7 @@ from omegaconf import DictConfig
 from speechgr.encoders.base import ModalityEncoder
 
 # Ensure the local inventory package is importable without modifying its codebase.
-_REPO_ROOT = Path(__file__).resolve().parents[2]
+_REPO_ROOT = Path(__file__).resolve().parents[3]
 _WAVTOKENIZER_ROOT = _REPO_ROOT / "inventory" / "WavTokenizer"
 if str(_WAVTOKENIZER_ROOT) not in sys.path:
     sys.path.insert(0, str(_WAVTOKENIZER_ROOT))
