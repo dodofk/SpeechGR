@@ -24,6 +24,7 @@ dependencies = [
     "transformers==4.44.2",
     "wandb",
     "einops",
+    "torchcodec",
 ]
 
 [project.optional-dependencies]
