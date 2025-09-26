@@ -23,6 +23,21 @@ Key overrides:
 - Short smoke test: `uv run python -m speechgr.cli.train task=retrieval training.training_args.max_steps=200`
 - Previous shell-script configuration is preserved as a Hydra preset: `uv run python -m speechgr.cli.train experiment=retrieval/slue_sqa5`
 - Transcript-only baseline (text modality): `uv run python -m speechgr.cli.train experiment=retrieval/slue_sqa5_text`
+- Chunk the indexing corpus instead of truncating it:
+  - `data.corpus_chunk_size=320` (tokens per chunk)
+  - `data.corpus_chunk_stride=256` (hop size / overlap)
+  - `data.corpus_min_tokens=32` (drop very short tails; defaults to `1`)
+  - `data.include_corpus_splits=[train,validation]` to keep the corpus examples in validation/test loaders
+  - Leave `data.atomic_offset` unset to auto-place atomic document identifiers after the highest discrete unit and reserved tokens; set it explicitly only if you need to reproduce historical numbering.
+  Every dataset exposes `dataset.corpus_segments_per_doc` for bookkeeping, and mini-batches always carry a `query_doc_id` tensor so you can pool chunk-level representations per document before, or instead of, passing them to the decoder.
+- Quick CPU smoke test (loads wavtokenizer caches and runs a single optimizer step):
+  ```bash
+  bash scripts/run_retrieval_smoke_cpu.sh
+  ```
+- Full wavtokenizer training run with WandB logging (project defaults to `speechgr`):
+  ```bash
+  bash scripts/run_retrieval_full_train.sh
+  ```
 
 Artifacts (`eval_results.json`, `eval_raw.json`) remain in the repository root. WandB logging uses the project defined in `configs/logging/wandb.yaml`.
 
@@ -46,6 +61,7 @@ uv run python -m speechgr.cli.train task=qformer
 
 Toggle Whisper features by setting `model.use_whisper_features=true`. When enabled, the script will stream audio via `SlueSQA5WhisperDataset`; otherwise it falls back to discrete units configured in `data.code_path`.
 Use the legacy SLUE profile via `experiment=qformer/slue_sqa5`.
+Chunking overrides from the retrieval section carry over unchanged. Leave the chunked sequences as independent Q-Former inputs, or pool them manually (group by the `query_doc_id` indices the collator emits) to build a single document vector before the forward pass.
 
 ## 5. Query Generation
 

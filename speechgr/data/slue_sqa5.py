@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional
+from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 import numpy as np
 import pandas as pd
@@ -69,33 +69,52 @@ class SLUESQA5Dataset(Dataset, ABC):
         *,
         csv_root: str,
         include_corpus: bool = True,
+        corpus_splits: Optional[Iterable[str]] = None,
         train_atomic: bool = False,
-        atomic_offset: int = 0,
+        atomic_offset: Optional[int] = None,
     ) -> None:
         if split not in _SPLITS:
             raise ValueError(f"split must be one of {_SPLITS}, got '{split}'")
 
         self.split = split
-        self.include_corpus = include_corpus and split == "train"
+        allowed_corpus_splits = (
+            {"train"}
+            if corpus_splits is None
+            else {str(s).lower() for s in corpus_splits}
+        )
+        if not allowed_corpus_splits:
+            allowed_corpus_splits = {"train"}
+        self.allowed_corpus_splits = frozenset(allowed_corpus_splits)
+        self.include_corpus = include_corpus and split in self.allowed_corpus_splits
         self.train_atomic = train_atomic
-        self.atomic_offset = atomic_offset
+        self._atomic_offset_seed: Optional[int] = atomic_offset
+        self._atomic_offset_resolved: Optional[int] = atomic_offset
 
         csv_dir = Path(csv_root)
         self.query_frame = pd.read_csv(csv_dir / f"{split}.csv")
-        self.corpus_frame = pd.read_csv(csv_dir / "corpus.csv")
+        corpus_path = csv_dir / "corpus.csv"
+        if not corpus_path.exists():
+            legacy_path = csv_dir / "slue_sqa5_corpus.csv"
+            if legacy_path.exists():
+                corpus_path = legacy_path
+            else:
+                raise FileNotFoundError(
+                    f"Corpus manifest not found at '{corpus_path}' or '{legacy_path}'"
+                )
+        self.corpus_frame = pd.read_csv(corpus_path)
 
         self.query_len = len(self.query_frame)
         self.doc_ids = self.corpus_frame["document_id"].tolist()
         self.doc_id_to_idx = {doc_id: idx for idx, doc_id in enumerate(self.doc_ids)}
 
         if self.train_atomic:
-            self.valid_ids = [str(idx + self.atomic_offset) for idx in range(len(self.doc_ids))]
+            self._update_valid_ids()
         else:
             self.valid_ids = self.doc_ids
 
     def __len__(self) -> int:
         if self.include_corpus:
-            return self.query_len + len(self.doc_ids)
+            return self.query_len + self._corpus_length()
         return self.query_len
 
     def __getitem__(self, index: int):
@@ -112,16 +131,32 @@ class SLUESQA5Dataset(Dataset, ABC):
             raise IndexError("Index out of range for query-only dataset")
 
         corpus_idx = index - self.query_len
-        document_id = self.doc_ids[corpus_idx]
-        doc_idx = self.doc_id_to_idx[document_id]
-        features = self._get_corpus_features(document_id)
-        label = self._label(document_id, doc_idx)
-        return features, label, doc_idx
+        return self._get_corpus_entry(corpus_idx)
 
     def _label(self, document_id: str, doc_idx: int) -> str | int:
         if self.train_atomic:
-            return doc_idx + self.atomic_offset
+            return doc_idx + self._resolve_atomic_offset()
         return document_id
+
+    def _resolve_atomic_offset(self) -> int:
+        if self._atomic_offset_resolved is None:
+            self._atomic_offset_resolved = self._default_atomic_offset()
+        return self._atomic_offset_resolved
+
+    def _default_atomic_offset(self) -> int:
+        return self._atomic_offset_seed or 0
+
+    def _set_atomic_offset(self, offset: int) -> None:
+        self._atomic_offset_seed = offset
+        self._atomic_offset_resolved = offset
+        self._update_valid_ids()
+
+    def _update_valid_ids(self) -> None:
+        if not self.train_atomic:
+            self.valid_ids = self.doc_ids
+            return
+        offset = self._resolve_atomic_offset()
+        self.valid_ids = [str(idx + offset) for idx in range(len(self.doc_ids))]
 
     @abstractmethod
     def _get_query_features(self, question_id: str):
@@ -130,6 +165,16 @@ class SLUESQA5Dataset(Dataset, ABC):
     @abstractmethod
     def _get_corpus_features(self, document_id: str):
         raise NotImplementedError
+
+    def _corpus_length(self) -> int:
+        return len(self.doc_ids)
+
+    def _get_corpus_entry(self, corpus_idx: int):
+        document_id = self.doc_ids[corpus_idx]
+        doc_idx = self.doc_id_to_idx[document_id]
+        features = self._get_corpus_features(document_id)
+        label = self._label(document_id, doc_idx)
+        return features, label, doc_idx
 
 
 class DiscreteUnitDataset(SLUESQA5Dataset):
@@ -146,12 +191,18 @@ class DiscreteUnitDataset(SLUESQA5Dataset):
         max_length: Optional[int] = None,
         codes_key: str = "codes",
         train_atomic: bool = False,
-        atomic_offset: int = 0,
+        atomic_offset: Optional[int] = None,
+        corpus_splits: Optional[Iterable[str]] = None,
+        corpus_chunk_size: Optional[int] = None,
+        corpus_chunk_stride: Optional[int] = None,
+        corpus_min_tokens: int = 1,
+        special_token: Optional[int] = None,
     ) -> None:
         super().__init__(
             split,
             csv_root=csv_root,
             include_corpus=include_corpus,
+            corpus_splits=corpus_splits,
             train_atomic=train_atomic,
             atomic_offset=atomic_offset,
         )
@@ -160,9 +211,28 @@ class DiscreteUnitDataset(SLUESQA5Dataset):
         self.encoder_name = encoder_name
         self.max_length = max_length
         self.codes_key = codes_key
+        self.corpus_chunk_size = corpus_chunk_size
+        self.corpus_chunk_stride = corpus_chunk_stride
+        self.corpus_min_tokens = max(1, int(corpus_min_tokens))
+        self.special_token = special_token
 
         self.query_cache = _load_cache(cache_dir / split / f"{split}_{encoder_name}.pt")
         self.corpus_cache = _load_cache(cache_dir / "corpus" / f"corpus_{encoder_name}.pt")
+        self._corpus_tensor_cache: Dict[str, torch.Tensor] = {}
+        self.corpus_segments_per_doc: Dict[str, int] = {
+            doc_id: 0 for doc_id in self.doc_ids
+        }
+        if self.include_corpus:
+            self._corpus_segments = self._build_corpus_segments()
+        else:
+            self._corpus_segments = []
+
+        if self.train_atomic:
+            if self._atomic_offset_seed is None:
+                offset = self._auto_atomic_offset()
+            else:
+                offset = self._atomic_offset_seed
+            self._set_atomic_offset(offset)
 
     def _get_query_features(self, question_id: str) -> torch.Tensor:
         cache_entry = self.query_cache.get(question_id)
@@ -172,17 +242,120 @@ class DiscreteUnitDataset(SLUESQA5Dataset):
         if codes is None:
             raise KeyError(f"Cache entry for '{question_id}' missing key '{self.codes_key}'")
         tensor = _truncate(_ensure_tensor(codes, dtype=torch.long), self.max_length)
+        return tensor.reshape(-1)
+
+    def _get_corpus_tensor(self, document_id: str) -> torch.Tensor:
+        tensor = self._corpus_tensor_cache.get(document_id)
+        if tensor is None:
+            cache_entry = self.corpus_cache.get(document_id)
+            if cache_entry is None:
+                raise KeyError(
+                    f"Missing {self.encoder_name} cache for document '{document_id}'"
+                )
+            codes = cache_entry.get(self.codes_key)
+            if codes is None:
+                raise KeyError(
+                    f"Cache entry for '{document_id}' missing key '{self.codes_key}'"
+                )
+            tensor = _ensure_tensor(codes, dtype=torch.long).reshape(-1)
+            self._corpus_tensor_cache[document_id] = tensor
         return tensor
 
-    def _get_corpus_features(self, document_id: str) -> torch.Tensor:
-        cache_entry = self.corpus_cache.get(document_id)
-        if cache_entry is None:
-            raise KeyError(f"Missing {self.encoder_name} cache for document '{document_id}'")
-        codes = cache_entry.get(self.codes_key)
-        if codes is None:
-            raise KeyError(f"Cache entry for '{document_id}' missing key '{self.codes_key}'")
-        tensor = _truncate(_ensure_tensor(codes, dtype=torch.long), self.max_length)
-        return tensor
+    def _compute_segment_offsets(self, length: int) -> List[Tuple[int, int]]:
+        if self.corpus_chunk_size is None or self.corpus_chunk_size <= 0:
+            return [(0, length)]
+
+        stride = self.corpus_chunk_stride or self.corpus_chunk_size
+        if stride <= 0:
+            raise ValueError("corpus_chunk_stride must be positive when chunking is enabled")
+
+        offsets: List[Tuple[int, int]] = []
+        start = 0
+        chunk = self.corpus_chunk_size
+        while start < length:
+            end = min(start + chunk, length)
+            seg_len = end - start
+            if seg_len >= self.corpus_min_tokens:
+                offsets.append((start, end))
+            if end == length:
+                break
+            start += stride
+
+        if not offsets:
+            end = length if length > 0 else chunk
+            offsets.append((max(0, end - chunk), end))
+        else:
+            last_start, last_end = offsets[-1]
+            if last_end < length:
+                offsets[-1] = (last_start, length)
+
+        return offsets
+
+    def _build_corpus_segments(self) -> List[Tuple[str, int, int, int]]:
+        segments: List[Tuple[str, int, int, int]] = []
+        for doc_idx, document_id in enumerate(self.doc_ids):
+            tensor = self._get_corpus_tensor(document_id)
+            offsets = self._compute_segment_offsets(tensor.numel())
+            self.corpus_segments_per_doc[document_id] = len(offsets)
+            for start, end in offsets:
+                segments.append((document_id, doc_idx, start, end))
+        return segments
+
+    def _corpus_length(self) -> int:
+        return len(self._corpus_segments)
+
+    def _get_corpus_entry(self, corpus_idx: int):
+        document_id, doc_idx, start, end = self._corpus_segments[corpus_idx]
+        features = self._get_corpus_features(
+            document_id, start=start, end=end
+        )
+        label = self._label(document_id, doc_idx)
+        return features, label, doc_idx
+
+    def _get_corpus_features(
+        self,
+        document_id: str,
+        *,
+        start: Optional[int] = None,
+        end: Optional[int] = None,
+    ) -> torch.Tensor:
+        tensor = self._get_corpus_tensor(document_id)
+        if start is not None or end is not None:
+            tensor = tensor[(start or 0) : end]
+        corpus_limit = (
+            self.corpus_chunk_size
+            if self.corpus_chunk_size is not None
+            else self.max_length
+        )
+        tensor = _truncate(tensor.clone(), corpus_limit)
+        return tensor.reshape(-1)
+
+    def _auto_atomic_offset(self) -> int:
+        max_token = -1
+
+        def _scan_cache(cache: Dict[str, Dict[str, torch.Tensor]]) -> None:
+            nonlocal max_token
+            for entry in cache.values():
+                codes = entry.get(self.codes_key)
+                if codes is None:
+                    continue
+                tensor = _ensure_tensor(codes, dtype=torch.long)
+                if tensor.numel() == 0:
+                    continue
+                value = int(tensor.max().item())
+                if value > max_token:
+                    max_token = value
+
+        _scan_cache(self.query_cache)
+        _scan_cache(self.corpus_cache)
+
+        reserved = {0, 1}
+        if self.special_token is not None:
+            reserved.add(int(self.special_token))
+        baseline = max(reserved)
+
+        candidate = max(max_token + 1, baseline + 1)
+        return candidate
 
 
 class ContinuousDataset(SLUESQA5Dataset):
@@ -199,12 +372,14 @@ class ContinuousDataset(SLUESQA5Dataset):
         feature_key: str = "features",
         dtype: torch.dtype = torch.float32,
         train_atomic: bool = False,
-        atomic_offset: int = 0,
+        atomic_offset: Optional[int] = None,
+        corpus_splits: Optional[Iterable[str]] = None,
     ) -> None:
         super().__init__(
             split,
             csv_root=csv_root,
             include_corpus=include_corpus,
+            corpus_splits=corpus_splits,
             train_atomic=train_atomic,
             atomic_offset=atomic_offset,
         )
@@ -251,7 +426,11 @@ class SlueSQA5DatasetV2(DiscreteUnitDataset):
         encoder_name: str = "wavtokenizer",
         include_corpus: bool = True,
         train_atomic: bool = False,
-        atomic_offset: int = 0,
+        atomic_offset: Optional[int] = None,
+        corpus_splits: Optional[Iterable[str]] = None,
+        corpus_chunk_size: Optional[int] = None,
+        corpus_chunk_stride: Optional[int] = None,
+        corpus_min_tokens: int = 1,
         **_: object,
     ) -> None:
         super().__init__(
@@ -263,6 +442,10 @@ class SlueSQA5DatasetV2(DiscreteUnitDataset):
             max_length=max_length,
             train_atomic=train_atomic,
             atomic_offset=atomic_offset,
+            corpus_splits=corpus_splits,
+            corpus_chunk_size=corpus_chunk_size,
+            corpus_chunk_stride=corpus_chunk_stride,
+            corpus_min_tokens=corpus_min_tokens,
         )
 
 
@@ -273,19 +456,26 @@ class SlueSQA5TextDataset(SLUESQA5Dataset):
         self,
         split: str = "train",
         *,
-        csv_root: str,
+        csv_root: Optional[str] = None,
+        dataset_path: Optional[str] = None,
         text_encoder: Optional[TextEncoder] = None,
         text_tokenizer_name: str = "google/flan-t5-base",
         query_text_field: Optional[Any] = None,
         corpus_text_field: Optional[Any] = None,
         include_corpus: bool = True,
+        corpus_splits: Optional[Iterable[str]] = None,
         train_atomic: bool = False,
         atomic_offset: int = 0,
     ) -> None:
+        root = csv_root or dataset_path
+        if root is None:
+            raise ValueError("Either 'csv_root' or 'dataset_path' must be provided")
+
         super().__init__(
             split,
-            csv_root=csv_root,
+            csv_root=root,
             include_corpus=include_corpus,
+            corpus_splits=corpus_splits,
             train_atomic=train_atomic,
             atomic_offset=atomic_offset,
         )
@@ -332,9 +522,16 @@ class SlueSQA5TextDataset(SLUESQA5Dataset):
                 raise KeyError(f"Missing corpus text for document_id '{doc_id}'")
         return mapping
 
-    def _encode(self, text: str) -> Dict[str, torch.Tensor]:
+    def _encode(self, text: str) -> Dict[str, List[int]]:
         encoded = self.encoder.encode(text)
-        return {key: value.clone().detach() for key, value in encoded.items()}
+        processed: Dict[str, torch.Tensor] = {}
+        for key, value in encoded.items():
+            if isinstance(value, torch.Tensor):
+                tensor_value = value.clone().detach()
+            else:
+                tensor_value = _ensure_tensor(value, dtype=torch.long)
+            processed[key] = tensor_value.tolist()
+        return processed
 
     def _get_query_features(self, question_id: str) -> Dict[str, torch.Tensor]:
         text = self.query_texts[question_id]

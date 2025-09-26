@@ -80,6 +80,11 @@ def _build_dataset(split: str, data_cfg: DataConfig, model_name: str, max_length
         include_corpus=data_cfg.include_corpus,
         train_atomic=data_cfg.train_atomic,
         atomic_offset=data_cfg.atomic_offset,
+        corpus_splits=data_cfg.include_corpus_splits,
+        corpus_chunk_size=data_cfg.corpus_chunk_size,
+        corpus_chunk_stride=data_cfg.corpus_chunk_stride,
+        corpus_min_tokens=data_cfg.corpus_min_tokens,
+        special_token=data_cfg.special_token,
     )
 
 

@@ -99,6 +99,11 @@ def _build_discrete_datasets(cfg: QFormerConfig, data_cfg: DataConfig, model_nam
         include_corpus=data_cfg.include_corpus,
         train_atomic=data_cfg.train_atomic,
         atomic_offset=data_cfg.atomic_offset,
+        special_token=data_cfg.special_token,
+        corpus_splits=data_cfg.include_corpus_splits,
+        corpus_chunk_size=data_cfg.corpus_chunk_size,
+        corpus_chunk_stride=data_cfg.corpus_chunk_stride,
+        corpus_min_tokens=data_cfg.corpus_min_tokens,
     )
     valid_ds = SlueSQA5DatasetV2(
         split="validation",
@@ -109,6 +114,11 @@ def _build_discrete_datasets(cfg: QFormerConfig, data_cfg: DataConfig, model_nam
         include_corpus=False,
         train_atomic=data_cfg.train_atomic,
         atomic_offset=data_cfg.atomic_offset,
+        special_token=data_cfg.special_token,
+        corpus_splits=data_cfg.include_corpus_splits,
+        corpus_chunk_size=data_cfg.corpus_chunk_size,
+        corpus_chunk_stride=data_cfg.corpus_chunk_stride,
+        corpus_min_tokens=data_cfg.corpus_min_tokens,
     )
     collator = IndexingCollator(tokenizer, padding="longest")
     return train_ds, valid_ds, collator

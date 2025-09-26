@@ -1,8 +1,8 @@
 defaults:
-  - data: slue_sqa5_c512
-  - model: flan_t5_base
-  - training: run_base
-  - logging: wandb
+  - /data@data: slue_sqa5_wavtok
+  - /model@model: flan_t5_base
+  - /training@training: run_base
+  - /logging@logging: wandb
   - _self_
 
 task: retrieval

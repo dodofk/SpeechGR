@@ -1,8 +1,8 @@
 defaults:
-  - data: slue_sqa5_l22_c500
-  - model: qformer_t5
-  - training: qformer_base
-  - logging: wandb
+  - /data@data: slue_sqa5_l22_c500
+  - /model@model: qformer_t5
+  - /training@training: qformer_base
+  - /logging@logging: wandb
   - _self_
 
 task: qformer

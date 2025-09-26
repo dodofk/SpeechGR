@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, Optional, Type, TypeVar, Union
+from typing import Any, Dict, Iterable, Optional, Type, TypeVar, Union
 
 from omegaconf import DictConfig, OmegaConf
 from transformers import TrainingArguments
@@ -44,7 +44,7 @@ class DataConfig:
     special_token: int = 32000
     discrete_code_num: int = 500
     train_atomic: bool = False
-    atomic_offset: int = 50
+    atomic_offset: Optional[int] = None
     pq_filename: Optional[str] = None
     corpus_filename: Optional[str] = None
     modality: str = "discrete"
@@ -57,6 +57,10 @@ class DataConfig:
     document_cache_file: Optional[str] = None
     precompute_root: Optional[str] = None
     encoder_name: Optional[str] = None
+    include_corpus_splits: Optional[Iterable[str]] = None
+    corpus_chunk_size: Optional[int] = None
+    corpus_chunk_stride: Optional[int] = None
+    corpus_min_tokens: int = 1
 
 
 @dataclass

@@ -1,8 +1,8 @@
 defaults:
-  - data: slue_sqa5_l22_c500
-  - model: flan_t5_base
-  - training: ranking_base
-  - logging: wandb
+  - /data@data: slue_sqa5_l22_c500
+  - /model@model: flan_t5_base
+  - /training@training: ranking_base
+  - /logging@logging: wandb
   - _self_
 
 task: ranking

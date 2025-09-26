@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Callable, Dict
 
 from hydra import main as hydra_main
-from omegaconf import DictConfig
+from omegaconf import DictConfig, OmegaConf
 from transformers import set_seed
 
 from speechgr.cli import retrieval, ranking, qformer, qg, t5_pretrain
@@ -23,10 +23,16 @@ _TASK_DISPATCH: Dict[str, Callable[[DictConfig], None]] = {
 @hydra_main(version_base=None, config_path="../../configs", config_name="train")
 def main(cfg: DictConfig) -> None:
     task_value = cfg.get("task")
+    merged_cfg = cfg
     if isinstance(task_value, DictConfig):
-        task_name = task_value.get("name")
+        task_name = task_value.get("name") or task_value.get("task")
+        base_dict = OmegaConf.to_container(cfg, resolve=False)
+        task_dict = OmegaConf.to_container(task_value, resolve=False)
+        merged_cfg = OmegaConf.create(base_dict)
+        merged_cfg = OmegaConf.merge(merged_cfg, task_dict)
     else:
         task_name = task_value
+        merged_cfg = cfg
     if task_name not in _TASK_DISPATCH:
         available = ", ".join(sorted(_TASK_DISPATCH))
         raise ValueError(f"Unsupported task '{task_name}'. Available: {available}")
@@ -34,7 +40,7 @@ def main(cfg: DictConfig) -> None:
     set_seed(cfg.get("seed", 42))
 
     runner = _TASK_DISPATCH[task_name]
-    runner(cfg)
+    runner(merged_cfg)
 
 
 if __name__ == "__main__":

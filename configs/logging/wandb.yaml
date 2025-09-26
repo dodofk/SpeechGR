@@ -1,4 +1,3 @@
-logging:
-  project: "DSI"
-  entity: null
-  notes: ""
+project: "DSI"
+entity: null
+notes: ""

@@ -1,0 +1,13 @@
+dataset_path: "${hydra:runtime.cwd}/outputs/slue_wavtok/csv"
+precompute_root: "${hydra:runtime.cwd}/outputs/slue_wavtok/precomputed"
+modality: "discrete_precomputed"
+encoder_name: "wavtokenizer"
+special_token: 32000
+discrete_code_num: 500
+train_atomic: false
+include_corpus: true
+include_corpus_splits:
+  - train
+corpus_chunk_size: null
+corpus_chunk_stride: null
+corpus_min_tokens: 1

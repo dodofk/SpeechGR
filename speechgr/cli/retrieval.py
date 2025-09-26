@@ -195,6 +195,11 @@ def _build_dataset(
             max_length=max_length,
             train_atomic=data_cfg.train_atomic,
             atomic_offset=data_cfg.atomic_offset,
+            corpus_splits=data_cfg.include_corpus_splits,
+            corpus_chunk_size=data_cfg.corpus_chunk_size,
+            corpus_chunk_stride=data_cfg.corpus_chunk_stride,
+            corpus_min_tokens=data_cfg.corpus_min_tokens,
+            special_token=data_cfg.special_token,
         )
 
     if not data_cfg.code_path:
@@ -209,6 +214,11 @@ def _build_dataset(
         train_atomic=data_cfg.train_atomic,
         atomic_offset=data_cfg.atomic_offset,
         max_length=max_length,
+        corpus_splits=data_cfg.include_corpus_splits,
+        corpus_chunk_size=data_cfg.corpus_chunk_size,
+        corpus_chunk_stride=data_cfg.corpus_chunk_stride,
+        corpus_min_tokens=data_cfg.corpus_min_tokens,
+        special_token=data_cfg.special_token,
     )
 
 
