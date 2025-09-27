@@ -3,7 +3,7 @@ name = "speechgr"
 version = "0.1.0"
 description = "Speech-grounded generative retrieval experiments"
 readme = "README.md"
-requires-python = "~=3.12"
+requires-python = "~=3.12.0"
 authors = [{ name = "SpeechGR Contributors" }]
 dependencies = [
     "accelerate",
@@ -37,7 +37,6 @@ build-backend = "setuptools.build_meta"
 
 [tool.uv]
 managed = true
-python = "3.12"
 
 [tool.setuptools.packages.find]
 where = ["."]

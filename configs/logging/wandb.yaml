@@ -1,3 +1,4 @@
-project: "DSI"
+project: "speechgr"
 entity: null
 notes: ""
+log_hydra: true

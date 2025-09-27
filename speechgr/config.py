@@ -123,6 +123,7 @@ class QFormerConfig:
 
 @dataclass
 class WandbConfig:
-    project: str = "DSI"
+    project: str = "speechgr"
     entity: Optional[str] = None
     notes: str = ""
+    log_hydra: bool = True

@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import json
+import logging
 from typing import Optional
 
 import numpy as np
 import wandb
-from omegaconf import DictConfig
+from omegaconf import DictConfig, OmegaConf
 from transformers import (
     AutoTokenizer,
     BartForConditionalGeneration,
@@ -34,6 +35,9 @@ from speechgr import (
 )
 from speechgr.trainer import DSITrainer
 from speechgr.utils import RestrictDecodeVocab
+
+
+logger = logging.getLogger(__name__)
 
 
 def make_compute_metrics(tokenizer, valid_ids):
@@ -99,7 +103,12 @@ def make_compute_metrics(tokenizer, valid_ids):
     return compute_metrics
 
 
-def _maybe_init_wandb(training_args, wandb_cfg: WandbConfig, run_notes: str) -> None:
+def _maybe_init_wandb(
+    training_args,
+    wandb_cfg: WandbConfig,
+    run_notes: str,
+    full_cfg: Optional[DictConfig] = None,
+) -> None:
     if training_args.local_rank not in (0, -1):
         return
     wandb.login()
@@ -110,6 +119,13 @@ def _maybe_init_wandb(training_args, wandb_cfg: WandbConfig, run_notes: str) -> 
         name=training_args.run_name,
         notes=notes,
     )
+    if wandb_cfg.log_hydra and full_cfg is not None:
+        try:
+            wandb.config.update(
+                OmegaConf.to_container(full_cfg, resolve=True), allow_val_change=True
+            )
+        except Exception as exc:  # pragma: no cover - wandb best effort
+            logger.warning("Failed to log Hydra config to WandB: %s", exc)
 
 
 def _load_model(model_cfg: ModelConfig):
@@ -306,6 +322,6 @@ def run(cfg: DictConfig) -> None:
     trainer.num_return_sequences = run_cfg.num_return_sequences
     trainer.top_k = run_cfg.top_k
 
-    _maybe_init_wandb(training_args, wandb_cfg, run_cfg.run_notes)
+    _maybe_init_wandb(training_args, wandb_cfg, run_cfg.run_notes, cfg)
 
     trainer.train()

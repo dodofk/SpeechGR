@@ -11,7 +11,7 @@ set -euo pipefail
 #   - uv-installed environment with project dependencies (uv sync)
 #   - wavtokenizer CSV + precompute under outputs/slue_wavtok/{csv,precomputed}
 
-export CUDA_VISIBLE_DEVICES=""
+export CUDA_VISIBLE_DEVICES="3"
 export DISABLE_WANDB=1
 
 uv run python -m speechgr.cli.train \
