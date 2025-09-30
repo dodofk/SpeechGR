@@ -61,8 +61,8 @@ class DataConfig:
     corpus_chunk_size: Optional[int] = None
     corpus_chunk_stride: Optional[int] = None
     corpus_min_tokens: int = 1
-    query_max_length: Optional[int] = None
-    corpus_max_length: Optional[int] = None
+    query_max_length: Optional[int] = 512
+    corpus_max_length: Optional[int] = 512
 
 
 @dataclass

@@ -225,18 +225,29 @@ class DiscreteUnitDataset(SLUESQA5Dataset):
 
         cache_dir = Path(storage_root)
         self.encoder_name = encoder_name
-        self.max_length = max_length
-        self.query_max_length = query_max_length if query_max_length is not None else max_length
-        self.corpus_max_length = (
-            corpus_max_length if corpus_max_length is not None else max_length
-        )
+        default_limit = max_length if max_length is not None else 512
+        if query_max_length is None and max_length is None:
+            logger.warning(
+                "DiscreteUnitDataset[%s]: no query_max_length provided; defaulting to %d",
+                self.split,
+                default_limit,
+            )
+        if corpus_max_length is None and max_length is None:
+            logger.warning(
+                "DiscreteUnitDataset[%s]: no corpus_max_length provided; defaulting to %d",
+                self.split,
+                default_limit,
+            )
+        self.max_length = default_limit
+        self.query_max_length = query_max_length or default_limit
+        self.corpus_max_length = corpus_max_length or default_limit
         self.codes_key = codes_key
         self.corpus_chunk_size = corpus_chunk_size
         self.corpus_chunk_stride = corpus_chunk_stride
         self.corpus_min_tokens = max(1, int(corpus_min_tokens))
         self.special_token = special_token
 
-        if self.corpus_chunk_size is None and self.corpus_max_length is not None:
+        if self.corpus_chunk_size is None:
             self.corpus_chunk_size = self.corpus_max_length
         if self.corpus_chunk_stride is None and self.corpus_chunk_size is not None:
             self.corpus_chunk_stride = self.corpus_chunk_size
@@ -252,15 +263,21 @@ class DiscreteUnitDataset(SLUESQA5Dataset):
         else:
             self._corpus_segments = []
 
+        self._raw_query_max_tokens = self._max_cache_length(self.query_cache)
+        self._raw_corpus_max_tokens = self._max_cache_length(self.corpus_cache)
+
         dataset_total = len(self)
         logger.info(
-            "DiscreteUnitDataset[%s]: queries=%d corpus_docs=%d corpus_segments=%d (query_max_length=%s, corpus_max_length=%s, chunk_size=%s, stride=%s)",
+            "DiscreteUnitDataset[%s]: queries=%d corpus_docs=%d corpus_segments=%d "
+            "(raw_query_max=%d, raw_corpus_max=%d, query_max_length=%d, corpus_max_length=%d, chunk_size=%s, stride=%s)",
             self.split,
             self.query_len,
             len(self.doc_ids),
             len(self._corpus_segments),
-            self.query_max_length if self.query_max_length is not None else "None",
-            self.corpus_max_length if self.corpus_max_length is not None else "None",
+            self._raw_query_max_tokens,
+            self._raw_corpus_max_tokens,
+            self.query_max_length,
+            self.corpus_max_length,
             self.corpus_chunk_size if self.corpus_chunk_size is not None else "None",
             self.corpus_chunk_stride if self.corpus_chunk_stride is not None else "None",
         )
@@ -276,6 +293,18 @@ class DiscreteUnitDataset(SLUESQA5Dataset):
             else:
                 offset = self._atomic_offset_seed
             self._set_atomic_offset(offset)
+
+    def _max_cache_length(self, cache: Dict[str, Dict[str, torch.Tensor]]) -> int:
+        max_len = 0
+        for entry in cache.values():
+            codes = entry.get(self.codes_key)
+            if codes is None:
+                continue
+            tensor = _ensure_tensor(codes, dtype=torch.long)
+            length = tensor.numel()
+            if length > max_len:
+                max_len = length
+        return max_len
 
     def _get_query_features(self, question_id: str) -> torch.Tensor:
         cache_entry = self.query_cache.get(question_id)
