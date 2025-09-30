@@ -730,6 +730,82 @@ class SlueSQA5WhisperDataset(Dataset):
         return record["features"], document_id, -1
 
 
+def _resolve_default_path(value: Optional[str]) -> Optional[str]:
+    if value is None:
+        return None
+    return value.replace("${hydra:runtime.cwd}", str(Path.cwd()))
+
+
+if __name__ == "__main__":
+    import argparse
+    from omegaconf import OmegaConf
+
+    parser = argparse.ArgumentParser(
+        description="Instantiate the default SLUE SQA5 discrete dataset for debugging",
+    )
+    parser.add_argument(
+        "--config",
+        default=str(
+            Path(__file__).resolve().parents[2]
+            / "configs"
+            / "data"
+            / "slue_sqa5_wavtok.yaml"
+        ),
+        help="Path to a Hydra-style data config (default: slue_sqa5_wavtok.yaml).",
+    )
+    parser.add_argument(
+        "--split",
+        default="train",
+        help="Dataset split to inspect (default: train).",
+    )
+    args = parser.parse_args()
+
+    cfg_path = Path(args.config)
+    if not cfg_path.exists():
+        raise FileNotFoundError(f"Config file '{cfg_path}' not found")
+
+    cfg = OmegaConf.load(cfg_path)
+    dataset_kwargs = {
+        "dataset_path": _resolve_default_path(cfg.get("dataset_path")),
+        "precompute_root": _resolve_default_path(
+            cfg.get("precompute_root") or cfg.get("code_path")
+        ),
+        "encoder_name": cfg.get("encoder_name", "wavtokenizer"),
+        "include_corpus": cfg.get("include_corpus", True),
+        "train_atomic": cfg.get("train_atomic", False),
+        "corpus_splits": cfg.get("include_corpus_splits"),
+        "corpus_chunk_size": cfg.get("corpus_chunk_size"),
+        "corpus_chunk_stride": cfg.get("corpus_chunk_stride"),
+        "corpus_min_tokens": cfg.get("corpus_min_tokens", 1),
+        "special_token": cfg.get("special_token"),
+        "query_max_length": cfg.get("query_max_length"),
+        "corpus_max_length": cfg.get("corpus_max_length"),
+    }
+
+    missing_paths = [
+        key
+        for key in ("dataset_path", "precompute_root")
+        if not dataset_kwargs.get(key)
+    ]
+    if missing_paths:
+        raise ValueError(
+            "Missing required paths in config: " + ", ".join(missing_paths)
+        )
+
+    ds = DiscreteUnitDataset(split=args.split, **dataset_kwargs)
+    print(
+        f"Loaded split='{args.split}' -> queries={ds.query_len}, corpus_docs={len(ds.doc_ids)}, "
+        f"corpus_segments={len(ds) - ds.query_len}"
+    )
+    print(
+        f"Raw lengths: query_max={ds._raw_query_max_tokens}, corpus_max={ds._raw_corpus_max_tokens}"
+    )
+    print(
+        f"Effective truncation: query_max_length={ds.query_max_length}, corpus_max_length={ds.corpus_max_length}, "
+        f"chunk_size={ds.corpus_chunk_size}, stride={ds.corpus_chunk_stride}"
+    )
+
+
 __all__ = [
     "SLUESQA5Dataset",
     "DiscreteUnitDataset",
