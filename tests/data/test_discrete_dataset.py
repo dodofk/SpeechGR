@@ -1,6 +1,7 @@
 import csv
 from collections import defaultdict
 
+import pytest
 import torch
 
 from speechgr.data.slue_sqa5 import DiscreteUnitDataset
@@ -154,3 +155,31 @@ def test_discrete_dataset_query_corpus_max_length(tmp_path):
     segments = [dataset[idx][0] for idx in range(dataset.query_len, len(dataset))]
     assert len(segments) == 5  # automatic chunking with max length 5
     assert all(seg.shape[0] <= 5 for seg in segments)
+
+
+def test_discrete_dataset_reject_non_squeezable(tmp_path):
+    csv_root = tmp_path / "csv"
+    cache_root = tmp_path / "cache"
+
+    _write_csv(
+        csv_root / "train.csv",
+        [{"question_id": "q1", "document_id": "d1"}],
+    )
+    _write_csv(csv_root / "corpus.csv", [{"document_id": "d1"}])
+
+    query_codes = torch.arange(0, 6, dtype=torch.long).reshape(2, 3)
+    corpus_codes = torch.arange(10, 22, dtype=torch.long)
+
+    _write_cache(cache_root / "train" / "train_dummy.pt", {"q1": {"codes": query_codes}})
+    _write_cache(cache_root / "corpus" / "corpus_dummy.pt", {"d1": {"codes": corpus_codes}})
+
+    dataset = DiscreteUnitDataset(
+        split="train",
+        dataset_path=str(csv_root),
+        precompute_root=str(cache_root),
+        encoder_name="dummy",
+        include_corpus=False,
+    )
+
+    with pytest.raises(ValueError):
+        _ = dataset[0]

@@ -306,6 +306,16 @@ class DiscreteUnitDataset(SLUESQA5Dataset):
                 max_len = length
         return max_len
 
+    @staticmethod
+    def _normalize_feature_tensor(tensor: torch.Tensor, *, context: str) -> torch.Tensor:
+        squeezed = tensor.squeeze()
+        if squeezed.ndim != 1:
+            raise ValueError(
+                f"Expected 1D codes for {context}; got shape {tuple(tensor.shape)} "
+                f"which becomes {tuple(squeezed.shape)} after squeeze."
+            )
+        return squeezed
+
     def _get_query_features(self, question_id: str) -> torch.Tensor:
         cache_entry = self.query_cache.get(question_id)
         if cache_entry is None:
@@ -313,9 +323,11 @@ class DiscreteUnitDataset(SLUESQA5Dataset):
         codes = cache_entry.get(self.codes_key)
         if codes is None:
             raise KeyError(f"Cache entry for '{question_id}' missing key '{self.codes_key}'")
-        tensor = _truncate(
-            _ensure_tensor(codes, dtype=torch.long), self.query_max_length
+        tensor = _ensure_tensor(codes, dtype=torch.long)
+        tensor = self._normalize_feature_tensor(
+            tensor, context=f"query '{question_id}'"
         )
+        tensor = _truncate(tensor, self.query_max_length)
         return tensor.reshape(-1)
 
     def _get_corpus_tensor(self, document_id: str) -> torch.Tensor:
@@ -331,7 +343,10 @@ class DiscreteUnitDataset(SLUESQA5Dataset):
                 raise KeyError(
                     f"Cache entry for '{document_id}' missing key '{self.codes_key}'"
                 )
-            tensor = _ensure_tensor(codes, dtype=torch.long).reshape(-1)
+            tensor = _ensure_tensor(codes, dtype=torch.long)
+            tensor = self._normalize_feature_tensor(
+                tensor, context=f"document '{document_id}'"
+            )
             self._corpus_tensor_cache[document_id] = tensor
         return tensor
 
