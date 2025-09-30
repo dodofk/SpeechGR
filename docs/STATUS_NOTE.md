@@ -26,3 +26,13 @@ _Generated on 2025-09-30 13:00 CDT._
 - **Next Steps**: Document Hydra override examples in `docs/execution.md`, expose a gradient-checkpoint toggle in `run_base.yaml`, and schedule a full retrieval train/eval rerun to log WandB metrics with the new settings.
 
 _Generated on 2025-09-30 20:15 CDT._
+
+# Status Note — 2025-09-30 (Late)
+
+- **Dataset Fixes**: Discrete unit datasets now default to 512-token query/corpus truncation, automatically squeeze cached tensors shaped `[1, seq_len]`, and raise explicit errors if dimensionality persists (`speechgr/data/slue_sqa5.py`). Logging now surfaces raw cache lengths versus effective truncation, plus corpus segment counts.
+- **Tooling**: Added `python -m speechgr.data.slue_sqa5` helper for quick dataset inspection with hard-coded default paths; CLI flags allow overriding paths or max lengths when debugging.
+- **Code Cleanup**: Removed the legacy `speechgr/data/datasets.py` alias to avoid conflicts with the Hugging Face `datasets` package; imports flow through `speechgr.data`.
+- **Outstanding**: Sync `configs/data/slue_sqa5_wavtok.yaml` with the enforced 512 chunk defaults, document the debug helper in `docs/execution.md`, and thread `run.generation_max_length` through retrieval configs so overrides are visible.
+- **Next Steps**: Rerun retrieval smoke/full jobs (capture WandB IDs), publish results in STATUS_NOTE, and schedule gradient-checkpoint/AMP toggle work for extended-context experiments.
+
+_Generated on 2025-09-30 21:45 CDT._
