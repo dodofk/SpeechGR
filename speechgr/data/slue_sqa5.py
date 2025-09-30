@@ -729,70 +729,50 @@ class SlueSQA5WhisperDataset(Dataset):
         document_id = record["document_id"].replace("_", " ")
         return record["features"], document_id, -1
 
-
-def _resolve_default_path(value: Optional[str]) -> Optional[str]:
-    if value is None:
-        return None
-    return value.replace("${hydra:runtime.cwd}", str(Path.cwd()))
-
-
 if __name__ == "__main__":
     import argparse
-    from omegaconf import OmegaConf
 
     parser = argparse.ArgumentParser(
         description="Instantiate the default SLUE SQA5 discrete dataset for debugging",
-    )
-    parser.add_argument(
-        "--config",
-        default=str(
-            Path(__file__).resolve().parents[2]
-            / "configs"
-            / "data"
-            / "slue_sqa5_wavtok.yaml"
-        ),
-        help="Path to a Hydra-style data config (default: slue_sqa5_wavtok.yaml).",
     )
     parser.add_argument(
         "--split",
         default="train",
         help="Dataset split to inspect (default: train).",
     )
+    parser.add_argument(
+        "--dataset-path",
+        default=str(Path.cwd() / "outputs" / "slue_wavtok" / "csv"),
+        help="Root directory containing SLUE manifests (default: outputs/slue_wavtok/csv).",
+    )
+    parser.add_argument(
+        "--precompute-root",
+        default=str(Path.cwd() / "outputs" / "slue_wavtok" / "precomputed"),
+        help="Root directory containing precomputed discrete codes (default: outputs/slue_wavtok/precomputed).",
+    )
+    parser.add_argument(
+        "--query-max-length",
+        type=int,
+        default=512,
+        help="Truncation length for query codes (default: 512).",
+    )
+    parser.add_argument(
+        "--corpus-max-length",
+        type=int,
+        default=512,
+        help="Truncation length for corpus codes (default: 512).",
+    )
     args = parser.parse_args()
 
-    cfg_path = Path(args.config)
-    if not cfg_path.exists():
-        raise FileNotFoundError(f"Config file '{cfg_path}' not found")
-
-    cfg = OmegaConf.load(cfg_path)
-    dataset_kwargs = {
-        "dataset_path": _resolve_default_path(cfg.get("dataset_path")),
-        "precompute_root": _resolve_default_path(
-            cfg.get("precompute_root") or cfg.get("code_path")
-        ),
-        "encoder_name": cfg.get("encoder_name", "wavtokenizer"),
-        "include_corpus": cfg.get("include_corpus", True),
-        "train_atomic": cfg.get("train_atomic", False),
-        "corpus_splits": cfg.get("include_corpus_splits"),
-        "corpus_chunk_size": cfg.get("corpus_chunk_size"),
-        "corpus_chunk_stride": cfg.get("corpus_chunk_stride"),
-        "corpus_min_tokens": cfg.get("corpus_min_tokens", 1),
-        "special_token": cfg.get("special_token"),
-        "query_max_length": cfg.get("query_max_length"),
-        "corpus_max_length": cfg.get("corpus_max_length"),
-    }
-
-    missing_paths = [
-        key
-        for key in ("dataset_path", "precompute_root")
-        if not dataset_kwargs.get(key)
-    ]
-    if missing_paths:
-        raise ValueError(
-            "Missing required paths in config: " + ", ".join(missing_paths)
-        )
-
-    ds = DiscreteUnitDataset(split=args.split, **dataset_kwargs)
+    ds = DiscreteUnitDataset(
+        split=args.split,
+        dataset_path=args.dataset_path,
+        precompute_root=args.precompute_root,
+        encoder_name="wavtokenizer",
+        include_corpus=True,
+        query_max_length=args.query_max_length,
+        corpus_max_length=args.corpus_max_length,
+    )
     print(
         f"Loaded split='{args.split}' -> queries={ds.query_len}, corpus_docs={len(ds.doc_ids)}, "
         f"corpus_segments={len(ds) - ds.query_len}"

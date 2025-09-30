@@ -1,6 +1,6 @@
 import torch
 
-from speechgr.data.datasets import SlueSQA5TextDataset
+from speechgr.data import SlueSQA5TextDataset
 from speechgr.data.collators import TextIndexingCollator
 
 
