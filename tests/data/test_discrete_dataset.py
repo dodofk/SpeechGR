@@ -57,11 +57,13 @@ def test_discrete_dataset_chunking(tmp_path):
 
     dataset = DiscreteUnitDataset(
         split="train",
-        csv_root=str(csv_root),
-        cache_root=str(cache_root),
+        dataset_path=str(csv_root),
+        precompute_root=str(cache_root),
         encoder_name="dummy",
         include_corpus=True,
         max_length=8,
+        query_max_length=8,
+        corpus_max_length=8,
         corpus_chunk_size=6,
         corpus_chunk_stride=4,
         special_token=32000,
@@ -84,11 +86,13 @@ def test_discrete_dataset_chunking(tmp_path):
 
     atomic_dataset = DiscreteUnitDataset(
         split="train",
-        csv_root=str(csv_root),
-        cache_root=str(cache_root),
+        dataset_path=str(csv_root),
+        precompute_root=str(cache_root),
         encoder_name="dummy",
         include_corpus=True,
         max_length=8,
+        query_max_length=8,
+        corpus_max_length=8,
         train_atomic=True,
         corpus_chunk_size=6,
         corpus_chunk_stride=4,
@@ -104,8 +108,8 @@ def test_discrete_dataset_chunking(tmp_path):
 
     val_dataset = DiscreteUnitDataset(
         split="validation",
-        csv_root=str(csv_root),
-        cache_root=str(cache_root),
+        dataset_path=str(csv_root),
+        precompute_root=str(cache_root),
         encoder_name="dummy",
         include_corpus=True,
         corpus_splits=("train", "validation"),
@@ -114,3 +118,39 @@ def test_discrete_dataset_chunking(tmp_path):
 
     assert val_dataset.include_corpus is True
     assert len(val_dataset) == val_dataset.query_len + len(val_dataset.doc_ids)
+
+
+def test_discrete_dataset_query_corpus_max_length(tmp_path):
+    csv_root = tmp_path / "csv"
+    cache_root = tmp_path / "cache"
+
+    _write_csv(
+        csv_root / "train.csv",
+        [{"question_id": "q1", "document_id": "d1"}],
+    )
+    _write_csv(csv_root / "corpus.csv", [{"document_id": "d1"}])
+
+    query_codes = torch.arange(0, 12, dtype=torch.long)
+    corpus_codes = torch.arange(100, 121, dtype=torch.long)
+
+    _write_cache(cache_root / "train" / "train_dummy.pt", {"q1": {"codes": query_codes}})
+    _write_cache(cache_root / "corpus" / "corpus_dummy.pt", {"d1": {"codes": corpus_codes}})
+
+    dataset = DiscreteUnitDataset(
+        split="train",
+        dataset_path=str(csv_root),
+        precompute_root=str(cache_root),
+        encoder_name="dummy",
+        include_corpus=True,
+        max_length=None,
+        query_max_length=4,
+        corpus_max_length=5,
+    )
+
+    query_features, _, _ = dataset[0]
+    assert query_features.shape[0] == 4
+
+    # After query entries, remaining rows are corpus segments produced via auto chunking
+    segments = [dataset[idx][0] for idx in range(dataset.query_len, len(dataset))]
+    assert len(segments) == 5  # automatic chunking with max length 5
+    assert all(seg.shape[0] <= 5 for seg in segments)

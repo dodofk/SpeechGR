@@ -166,9 +166,11 @@ def _build_dataset(
     max_length: int,
     text_encoder: Optional[TextEncoder] = None,
 ):
+    query_max_length = data_cfg.query_max_length or max_length
+    corpus_max_length = data_cfg.corpus_max_length or query_max_length
+
     dataset_kwargs = {
         "split": split,
-        "max_length": max_length,
         "dataset_path": data_cfg.dataset_path,
     }
     if data_cfg.pq_filename:
@@ -180,7 +182,7 @@ def _build_dataset(
     if modality == "text":
         encoder = text_encoder or TextEncoder(
             tokenizer_name=data_cfg.text_tokenizer_name or model_name,
-            max_length=max_length,
+            max_length=query_max_length,
             padding=False,
             truncation=True,
             add_special_tokens=True,
@@ -204,11 +206,13 @@ def _build_dataset(
             )
         return DiscreteUnitDataset(
             split=split,
-            csv_root=data_cfg.dataset_path,
-            cache_root=data_cfg.precompute_root,
+            dataset_path=data_cfg.dataset_path,
+            precompute_root=data_cfg.precompute_root,
             encoder_name=data_cfg.encoder_name or "wavtokenizer",
             include_corpus=data_cfg.include_corpus,
-            max_length=max_length,
+            max_length=query_max_length,
+            query_max_length=query_max_length,
+            corpus_max_length=corpus_max_length,
             train_atomic=data_cfg.train_atomic,
             atomic_offset=data_cfg.atomic_offset,
             corpus_splits=data_cfg.include_corpus_splits,
@@ -222,19 +226,22 @@ def _build_dataset(
         raise ValueError("code_path must be provided for discrete modality")
 
     return SlueSQA5DatasetV2(
-        **dataset_kwargs,
+        split=split,
         dataset_path=data_cfg.dataset_path,
-        code_path=data_cfg.code_path,
+        precompute_root=data_cfg.precompute_root or data_cfg.code_path,
         encoder_name=data_cfg.encoder_name or "wavtokenizer",
         include_corpus=data_cfg.include_corpus,
         train_atomic=data_cfg.train_atomic,
         atomic_offset=data_cfg.atomic_offset,
-        max_length=max_length,
+        max_length=query_max_length,
+        query_max_length=query_max_length,
+        corpus_max_length=corpus_max_length,
         corpus_splits=data_cfg.include_corpus_splits,
         corpus_chunk_size=data_cfg.corpus_chunk_size,
         corpus_chunk_stride=data_cfg.corpus_chunk_stride,
         corpus_min_tokens=data_cfg.corpus_min_tokens,
         special_token=data_cfg.special_token,
+        **{k: v for k, v in dataset_kwargs.items() if k not in {"split", "dataset_path"}},
     )
 
 
@@ -321,6 +328,7 @@ def run(cfg: DictConfig) -> None:
     trainer.max_length = run_cfg.max_length
     trainer.num_return_sequences = run_cfg.num_return_sequences
     trainer.top_k = run_cfg.top_k
+    trainer.generation_max_length = run_cfg.generation_max_length
 
     _maybe_init_wandb(training_args, wandb_cfg, run_cfg.run_notes, cfg)
 

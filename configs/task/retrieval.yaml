@@ -12,4 +12,5 @@ run:
   id_max_length: 128
   top_k: 10
   num_return_sequences: 10
+  generation_max_length: 20
   run_notes: "fine-tune on flan-t5 with 500 cluster discrete units on layer 22"

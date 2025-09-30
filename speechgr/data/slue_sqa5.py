@@ -67,7 +67,8 @@ class SLUESQA5Dataset(Dataset, ABC):
         self,
         split: str,
         *,
-        csv_root: str,
+        dataset_path: Optional[str] = None,
+        csv_root: Optional[str] = None,
         include_corpus: bool = True,
         corpus_splits: Optional[Iterable[str]] = None,
         train_atomic: bool = False,
@@ -77,6 +78,10 @@ class SLUESQA5Dataset(Dataset, ABC):
             raise ValueError(f"split must be one of {_SPLITS}, got '{split}'")
 
         self.split = split
+        root = dataset_path or csv_root
+        if root is None:
+            raise ValueError("'dataset_path' must be provided for SLUE SQA5 datasets")
+        self.dataset_path = str(root)
         allowed_corpus_splits = (
             {"train"}
             if corpus_splits is None
@@ -90,7 +95,7 @@ class SLUESQA5Dataset(Dataset, ABC):
         self._atomic_offset_seed: Optional[int] = atomic_offset
         self._atomic_offset_resolved: Optional[int] = atomic_offset
 
-        csv_dir = Path(csv_root)
+        csv_dir = Path(self.dataset_path)
         self.query_frame = pd.read_csv(csv_dir / f"{split}.csv")
         corpus_path = csv_dir / "corpus.csv"
         if not corpus_path.exists():
@@ -184,11 +189,15 @@ class DiscreteUnitDataset(SLUESQA5Dataset):
         self,
         split: str,
         *,
-        csv_root: str,
-        cache_root: str,
+        dataset_path: Optional[str] = None,
+        csv_root: Optional[str] = None,
+        precompute_root: Optional[str] = None,
+        cache_root: Optional[str] = None,
         encoder_name: str,
         include_corpus: bool = True,
         max_length: Optional[int] = None,
+        query_max_length: Optional[int] = None,
+        corpus_max_length: Optional[int] = None,
         codes_key: str = "codes",
         train_atomic: bool = False,
         atomic_offset: Optional[int] = None,
@@ -198,23 +207,39 @@ class DiscreteUnitDataset(SLUESQA5Dataset):
         corpus_min_tokens: int = 1,
         special_token: Optional[int] = None,
     ) -> None:
+        root = dataset_path or csv_root
+        if root is None:
+            raise ValueError("'dataset_path' must be provided for discrete datasets")
+        storage_root = precompute_root or cache_root
+        if storage_root is None:
+            raise ValueError("'precompute_root' must be provided for discrete datasets")
+
         super().__init__(
             split,
-            csv_root=csv_root,
+            dataset_path=root,
             include_corpus=include_corpus,
             corpus_splits=corpus_splits,
             train_atomic=train_atomic,
             atomic_offset=atomic_offset,
         )
 
-        cache_dir = Path(cache_root)
+        cache_dir = Path(storage_root)
         self.encoder_name = encoder_name
         self.max_length = max_length
+        self.query_max_length = query_max_length if query_max_length is not None else max_length
+        self.corpus_max_length = (
+            corpus_max_length if corpus_max_length is not None else max_length
+        )
         self.codes_key = codes_key
         self.corpus_chunk_size = corpus_chunk_size
         self.corpus_chunk_stride = corpus_chunk_stride
         self.corpus_min_tokens = max(1, int(corpus_min_tokens))
         self.special_token = special_token
+
+        if self.corpus_chunk_size is None and self.corpus_max_length is not None:
+            self.corpus_chunk_size = self.corpus_max_length
+        if self.corpus_chunk_stride is None and self.corpus_chunk_size is not None:
+            self.corpus_chunk_stride = self.corpus_chunk_size
 
         self.query_cache = _load_cache(cache_dir / split / f"{split}_{encoder_name}.pt")
         self.corpus_cache = _load_cache(cache_dir / "corpus" / f"corpus_{encoder_name}.pt")
@@ -226,6 +251,24 @@ class DiscreteUnitDataset(SLUESQA5Dataset):
             self._corpus_segments = self._build_corpus_segments()
         else:
             self._corpus_segments = []
+
+        dataset_total = len(self)
+        logger.info(
+            "DiscreteUnitDataset[%s]: queries=%d corpus_docs=%d corpus_segments=%d (query_max_length=%s, corpus_max_length=%s, chunk_size=%s, stride=%s)",
+            self.split,
+            self.query_len,
+            len(self.doc_ids),
+            len(self._corpus_segments),
+            self.query_max_length if self.query_max_length is not None else "None",
+            self.corpus_max_length if self.corpus_max_length is not None else "None",
+            self.corpus_chunk_size if self.corpus_chunk_size is not None else "None",
+            self.corpus_chunk_stride if self.corpus_chunk_stride is not None else "None",
+        )
+        logger.info(
+            "DiscreteUnitDataset[%s]: effective dataset rows=%d (queries + corpus segments)",
+            self.split,
+            dataset_total,
+        )
 
         if self.train_atomic:
             if self._atomic_offset_seed is None:
@@ -241,7 +284,9 @@ class DiscreteUnitDataset(SLUESQA5Dataset):
         codes = cache_entry.get(self.codes_key)
         if codes is None:
             raise KeyError(f"Cache entry for '{question_id}' missing key '{self.codes_key}'")
-        tensor = _truncate(_ensure_tensor(codes, dtype=torch.long), self.max_length)
+        tensor = _truncate(
+            _ensure_tensor(codes, dtype=torch.long), self.query_max_length
+        )
         return tensor.reshape(-1)
 
     def _get_corpus_tensor(self, document_id: str) -> torch.Tensor:
@@ -322,11 +367,7 @@ class DiscreteUnitDataset(SLUESQA5Dataset):
         tensor = self._get_corpus_tensor(document_id)
         if start is not None or end is not None:
             tensor = tensor[(start or 0) : end]
-        corpus_limit = (
-            self.corpus_chunk_size
-            if self.corpus_chunk_size is not None
-            else self.max_length
-        )
+        corpus_limit = self.corpus_chunk_size or self.corpus_max_length
         tensor = _truncate(tensor.clone(), corpus_limit)
         return tensor.reshape(-1)
 
@@ -365,8 +406,10 @@ class ContinuousDataset(SLUESQA5Dataset):
         self,
         split: str,
         *,
-        csv_root: str,
-        cache_root: str,
+        dataset_path: Optional[str] = None,
+        csv_root: Optional[str] = None,
+        precompute_root: Optional[str] = None,
+        cache_root: Optional[str] = None,
         encoder_name: str,
         include_corpus: bool = True,
         feature_key: str = "features",
@@ -375,16 +418,23 @@ class ContinuousDataset(SLUESQA5Dataset):
         atomic_offset: Optional[int] = None,
         corpus_splits: Optional[Iterable[str]] = None,
     ) -> None:
+        root = dataset_path or csv_root
+        if root is None:
+            raise ValueError("'dataset_path' must be provided for continuous datasets")
+        storage_root = precompute_root or cache_root
+        if storage_root is None:
+            raise ValueError("'precompute_root' must be provided for continuous datasets")
+
         super().__init__(
             split,
-            csv_root=csv_root,
+            dataset_path=root,
             include_corpus=include_corpus,
             corpus_splits=corpus_splits,
             train_atomic=train_atomic,
             atomic_offset=atomic_offset,
         )
 
-        cache_dir = Path(cache_root)
+        cache_dir = Path(storage_root)
         self.encoder_name = encoder_name
         self.feature_key = feature_key
         self.dtype = dtype
@@ -422,7 +472,8 @@ class SlueSQA5DatasetV2(DiscreteUnitDataset):
         *,
         max_length: int = 512,
         dataset_path: str,
-        code_path: str,
+        precompute_root: Optional[str] = None,
+        code_path: Optional[str] = None,
         encoder_name: str = "wavtokenizer",
         include_corpus: bool = True,
         train_atomic: bool = False,
@@ -431,15 +482,23 @@ class SlueSQA5DatasetV2(DiscreteUnitDataset):
         corpus_chunk_size: Optional[int] = None,
         corpus_chunk_stride: Optional[int] = None,
         corpus_min_tokens: int = 1,
+        query_max_length: Optional[int] = None,
+        corpus_max_length: Optional[int] = None,
         **_: object,
     ) -> None:
+        cache_root = precompute_root or code_path
+        if cache_root is None:
+            raise ValueError("'precompute_root' must be provided for discrete datasets")
+
         super().__init__(
             split=split,
-            csv_root=dataset_path,
-            cache_root=code_path,
+            dataset_path=dataset_path,
+            precompute_root=cache_root,
             encoder_name=encoder_name,
             include_corpus=include_corpus,
             max_length=max_length,
+            query_max_length=query_max_length,
+            corpus_max_length=corpus_max_length,
             train_atomic=train_atomic,
             atomic_offset=atomic_offset,
             corpus_splits=corpus_splits,

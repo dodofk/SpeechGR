@@ -61,6 +61,8 @@ class DataConfig:
     corpus_chunk_size: Optional[int] = None
     corpus_chunk_stride: Optional[int] = None
     corpus_min_tokens: int = 1
+    query_max_length: Optional[int] = None
+    corpus_max_length: Optional[int] = None
 
 
 @dataclass
@@ -98,6 +100,7 @@ class RunConfig:
     id_max_length: int = 128
     top_k: int = 10
     num_return_sequences: int = 10
+    generation_max_length: Optional[int] = None
     run_notes: str = ""
 
 

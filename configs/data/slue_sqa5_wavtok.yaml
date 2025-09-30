@@ -8,6 +8,8 @@ train_atomic: false
 include_corpus: true
 include_corpus_splits:
   - train
-corpus_chunk_size: null
-corpus_chunk_stride: null
+corpus_chunk_size: 512
+corpus_chunk_stride: 512
 corpus_min_tokens: 1
+query_max_length: 512
+corpus_max_length: 512

@@ -21,6 +21,9 @@ class DSITrainer(Trainer):
         self.id_max_length = id_max_length
         self.train_continuous_embedding = train_continuous_embedding
         self.use_whisper_features = use_whisper_features
+        # Default decoding knobs; Hydra overrides update these after instantiation.
+        self.num_return_sequences = 1
+        self.top_k = 1
 
     def compute_loss(self, model, inputs, return_outputs=False):
         if self.train_continuous_embedding:
@@ -59,94 +62,59 @@ class DSITrainer(Trainer):
         ignore_keys: Optional[List[str]] = None,
     ) -> Tuple[Optional[torch.Tensor], Optional[torch.Tensor], Optional[torch.Tensor]]:
         model.eval()
-        # eval_loss = super().prediction_step(model, inputs, True, ignore_keys)[0]
         inputs["labels"] = inputs["labels"].to(self.args.device)
-        
-        with torch.no_grad():
-            # Handle different types of features based on mode
-            if self.train_continuous_embedding and "input_features" in inputs:
-                if self.use_whisper_features:
-                    # For Whisper features: source from input_features, use inputs_embeds for generation
-                    feature_input = inputs["input_features"].to(self.args.device)
-                    
-                    if self.restrict_decode_vocab is not None:
-                        batch_beams = model.generate(
-                            inputs_embeds=feature_input,
-                            attention_mask=inputs["attention_mask"].to(self.args.device),
-                            max_length=20,
-                            num_beams=20,
-                            prefix_allowed_tokens_fn=self.restrict_decode_vocab,
-                            num_return_sequences=20,
-                            early_stopping=True,
-                        )
-                    else:
-                        batch_beams = model.generate(
-                            inputs_embeds=feature_input,
-                            attention_mask=inputs["attention_mask"].to(self.args.device),
-                            max_length=20,
-                            num_beams=20,
-                            num_return_sequences=20,
-                            early_stopping=True,
-                        )
-                else:
-                    # For other continuous features: source from input_features, use inputs_embeds for generation
-                    feature_input = inputs["input_features"].to(self.args.device)
-                    
-                    if self.restrict_decode_vocab is not None:
-                        batch_beams = model.generate(
-                            inputs_embeds=feature_input,
-                            attention_mask=inputs["attention_mask"].to(self.args.device),
-                            max_length=20,
-                            num_beams=20,
-                            prefix_allowed_tokens_fn=self.restrict_decode_vocab,
-                            num_return_sequences=20,
-                            early_stopping=True,
-                        )
-                    else:
-                        batch_beams = model.generate(
-                            inputs_embeds=feature_input,
-                            attention_mask=inputs["attention_mask"].to(self.args.device),
-                            max_length=20,
-                            num_beams=20,
-                            num_return_sequences=20,
-                            early_stopping=True,
-                        )
-            else:
-                # Original implementation for input_ids (discrete tokens)
-                if self.restrict_decode_vocab is not None:
-                    batch_beams = model.generate(
-                        inputs["input_ids"].to(self.args.device),
-                        max_length=20,
-                        num_beams=20,
-                        prefix_allowed_tokens_fn=self.restrict_decode_vocab,
-                        num_return_sequences=20,
-                        early_stopping=True,
-                    )
-                else:
-                    batch_beams = model.generate(
-                        inputs["input_ids"].to(self.args.device),
-                        max_length=20,
-                        num_beams=20,
-                        num_return_sequences=20,
-                        early_stopping=True,
-                    )
 
-            if batch_beams.shape[-1] < self.id_max_length:
+        num_return_sequences = max(1, getattr(self, "num_return_sequences", 1))
+        num_beams = max(num_return_sequences, getattr(self, "top_k", num_return_sequences))
+        generation_max_length = getattr(self, "generation_max_length", None)
+        if generation_max_length is None:
+            generation_max_length = min(self.id_max_length, 20)
+
+        generation_kwargs: Dict[str, Any] = {
+            "max_length": generation_max_length,
+            "num_beams": num_beams,
+            "num_return_sequences": num_return_sequences,
+            "early_stopping": True,
+        }
+
+        attention_mask = inputs.get("attention_mask")
+        if attention_mask is not None:
+            generation_kwargs["attention_mask"] = attention_mask.to(self.args.device)
+
+        if self.restrict_decode_vocab is not None:
+            generation_kwargs["prefix_allowed_tokens_fn"] = self.restrict_decode_vocab
+
+        with torch.no_grad():
+            if self.train_continuous_embedding and "input_features" in inputs:
+                feature_input = inputs["input_features"].to(self.args.device)
+                batch_size = feature_input.shape[0]
+                batch_beams = model.generate(
+                    inputs_embeds=feature_input,
+                    **generation_kwargs,
+                )
+            else:
+                input_ids = inputs["input_ids"].to(self.args.device)
+                batch_size = input_ids.shape[0]
+                batch_beams = model.generate(
+                    input_ids=input_ids,
+                    **generation_kwargs,
+                )
+
+            if batch_beams.shape[-1] > self.id_max_length:
+                batch_beams = batch_beams[..., : self.id_max_length]
+            elif batch_beams.shape[-1] < self.id_max_length:
                 batch_beams = self._pad_tensors_to_max_len(
                     batch_beams, self.id_max_length
                 )
 
-            inputs["labels"] = self._pad_tensors_to_max_len(
-                inputs["labels"], self.id_max_length
-            )
-            
-            # Calculate reshape dimension based on input type
-            if self.train_continuous_embedding and "input_features" in inputs:
-                batch_size = inputs["input_features"].shape[0]
+            labels = inputs["labels"]
+            if labels.shape[-1] > self.id_max_length:
+                labels = labels[..., : self.id_max_length]
             else:
-                batch_size = inputs["input_ids"].shape[0]
-                
-            batch_beams = batch_beams.reshape(batch_size, 20, -1)
+                labels = self._pad_tensors_to_max_len(labels, self.id_max_length)
+            inputs["labels"] = labels
+
+            batch_beams = batch_beams.reshape(batch_size, num_return_sequences, -1)
 
         return (None, batch_beams, inputs["labels"])
 
