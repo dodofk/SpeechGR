@@ -1,0 +1,34 @@
+output_root: outputs/slue_sqa5_whisper
+
+encoder:
+  name: whisper
+  params:
+    whisper_model_name: "openai/whisper-base"
+    device: cuda
+    cache_dtype: float32
+    apply_spec_augment: false
+    time_warp_param: 80
+    freq_mask_param: 27
+    time_mask_param: 100
+  question:
+    params:
+      whisper_model_name: ${encoder.params.whisper_model_name}
+      device: ${encoder.params.device}
+      cache_dtype: ${encoder.params.cache_dtype}
+      apply_spec_augment: ${encoder.params.apply_spec_augment}
+      time_warp_param: ${encoder.params.time_warp_param}
+      freq_mask_param: ${encoder.params.freq_mask_param}
+      time_mask_param: ${encoder.params.time_mask_param}
+      audio_field: question_audio
+      sample_id_field: question_id
+  document:
+    params:
+      whisper_model_name: ${encoder.params.whisper_model_name}
+      device: ${encoder.params.device}
+      cache_dtype: ${encoder.params.cache_dtype}
+      apply_spec_augment: false
+      time_warp_param: ${encoder.params.time_warp_param}
+      freq_mask_param: ${encoder.params.freq_mask_param}
+      time_mask_param: ${encoder.params.time_mask_param}
+      audio_field: document_audio
+      sample_id_field: document_id

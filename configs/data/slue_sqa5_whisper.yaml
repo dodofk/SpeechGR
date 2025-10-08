@@ -1,0 +1,14 @@
+dataset_path: ${oc.env:SLUE_SQA5_WHISPER_CSV,outputs/slue_sqa5_whisper/csv}
+precompute_root: ${oc.env:SLUE_SQA5_WHISPER_CACHE,outputs/slue_sqa5_whisper/precomputed}
+encoder_name: whisper
+include_corpus: true
+include_corpus_splits:
+  - train
+train_atomic: false
+atomic_offset: null
+feature_cache_dir: null
+corpus_chunk_size: null
+corpus_chunk_stride: null
+corpus_min_tokens: 1
+query_max_length: null
+corpus_max_length: null

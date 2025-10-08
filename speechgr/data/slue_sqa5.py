@@ -507,6 +507,112 @@ class ContinuousDataset(SLUESQA5Dataset):
         return tensor
 
 
+class SlueSQA5WhisperCachedDataset(ContinuousDataset):
+    """Cache-backed dataset that serves precomputed Whisper feature tensors."""
+
+    def __init__(
+        self,
+        split: str,
+        *,
+        dataset_path: Optional[str] = None,
+        csv_root: Optional[str] = None,
+        precompute_root: Optional[str] = None,
+        cache_root: Optional[str] = None,
+        encoder_name: str = "whisper",
+        include_corpus: bool = True,
+        feature_key: str = "features",
+        length_key: str = "length",
+        dtype: torch.dtype = torch.float32,
+        train_atomic: bool = False,
+        atomic_offset: Optional[int] = None,
+        corpus_splits: Optional[Iterable[str]] = None,
+    ) -> None:
+        super().__init__(
+            split,
+            dataset_path=dataset_path,
+            csv_root=csv_root,
+            precompute_root=precompute_root,
+            cache_root=cache_root,
+            encoder_name=encoder_name,
+            include_corpus=include_corpus,
+            feature_key=feature_key,
+            dtype=dtype,
+            train_atomic=train_atomic,
+            atomic_offset=atomic_offset,
+            corpus_splits=corpus_splits,
+        )
+        self.length_key = length_key
+
+    # ------------------------------------------------------------------
+    def _extract_tensor_with_length(
+        self,
+        cache: Dict[str, Any],
+        key: str,
+        *,
+        context: str,
+    ) -> tuple[torch.Tensor, int]:
+        entry = cache.get(key)
+        if entry is None:
+            raise KeyError(f"Missing {self.encoder_name} cache for {context}")
+        if not isinstance(entry, dict):  # pragma: no cover - defensive
+            raise TypeError(
+                f"Expected mapping for cache entry '{context}', got {type(entry)!r}"
+            )
+
+        features = entry.get(self.feature_key)
+        if features is None:
+            raise KeyError(
+                f"Cache entry for {context} missing key '{self.feature_key}'"
+            )
+        tensor = _ensure_tensor(features, dtype=self.dtype)
+        if tensor.ndim != 2:
+            raise ValueError(
+                f"Expected 2D Whisper features for {context}; got shape {tuple(tensor.shape)}"
+            )
+
+        length_val = entry.get(self.length_key)
+        if length_val is None:
+            seq_len = int(tensor.shape[0])
+        else:
+            seq_len = int(length_val)
+        return tensor, seq_len
+
+    # ------------------------------------------------------------------
+    def _get_query_tensor_with_length(
+        self, question_id: str
+    ) -> tuple[torch.Tensor, int]:
+        return self._extract_tensor_with_length(
+            self.query_cache, question_id, context=f"query '{question_id}'"
+        )
+
+    def _get_corpus_tensor_with_length(
+        self, document_id: str
+    ) -> tuple[torch.Tensor, int]:
+        return self._extract_tensor_with_length(
+            self.corpus_cache, document_id, context=f"document '{document_id}'"
+        )
+
+    # ------------------------------------------------------------------
+    def __getitem__(self, index: int):  # type: ignore[override]
+        if index < self.query_len:
+            row = self.query_frame.iloc[index]
+            question_id = str(row["question_id"])
+            document_id = str(row["document_id"])
+            doc_idx = self.doc_id_to_idx.get(document_id, -1)
+            features, length = self._get_query_tensor_with_length(question_id)
+            label = self._label(document_id, doc_idx)
+            return features, label, doc_idx, length
+
+        if not self.include_corpus:
+            raise IndexError("Index out of range for query-only dataset")
+
+        corpus_idx = index - self.query_len
+        document_id = self.doc_ids[corpus_idx]
+        doc_idx = self.doc_id_to_idx[document_id]
+        features, length = self._get_corpus_tensor_with_length(document_id)
+        label = self._label(document_id, doc_idx)
+        return features, label, doc_idx, length
+
 class SlueSQA5DatasetV2(DiscreteUnitDataset):
     """Backwards-compatible wrapper around :class:`DiscreteUnitDataset`."""
 
@@ -805,6 +911,7 @@ __all__ = [
     "SLUESQA5Dataset",
     "DiscreteUnitDataset",
     "ContinuousDataset",
+    "SlueSQA5WhisperCachedDataset",
     "SlueSQA5DatasetV2",
     "SlueSQA5TextDataset",
     "SlueSQA5WhisperDataset",

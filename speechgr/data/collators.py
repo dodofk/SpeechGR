@@ -95,33 +95,48 @@ class ContinuousIndexingCollator(DataCollatorWithPadding):
 class WhisperIndexingCollator(DataCollatorWithPadding):
     """Collator tailored for Whisper encoder features."""
 
-    def __call__(self, features):
-        feature_tensors = [x[0] for x in features]
-        docids = [x[1] for x in features]
-        doc_indices = [x[2] for x in features]
+    feature_dtype: torch.dtype = torch.float32
 
-        max_seq_len = max(feat.shape[0] for feat in feature_tensors)
+    def __call__(self, features):
+        feature_tensors: List[torch.Tensor] = []
+        docids: List[str] = []
+        doc_indices: List[int] = []
+        lengths: List[int] = []
+
+        for sample in features:
+            if len(sample) == 4:
+                feat, docid, doc_idx, seq_len = sample
+            else:
+                feat, docid, doc_idx = sample
+                seq_len = feat.shape[0]
+
+            if feat.ndim != 2:
+                raise ValueError(
+                    f"Expected Whisper features with shape (frames, dim); got {tuple(feat.shape)}"
+                )
+
+            feature_tensors.append(feat.to(self.feature_dtype))
+            docids.append(docid)
+            doc_indices.append(int(doc_idx))
+            lengths.append(int(seq_len))
+
+        if not feature_tensors:
+            raise ValueError("WhisperIndexingCollator received an empty batch")
+
+        max_seq_len = max(lengths)
         feature_dim = feature_tensors[0].shape[1]
 
-        padded_features: List[torch.Tensor] = []
-        attention_masks: List[torch.Tensor] = []
+        batch_size = len(feature_tensors)
+        batched_features = feature_tensors[0].new_zeros(batch_size, max_seq_len, feature_dim)
+        batched_attention_masks = torch.zeros(batch_size, max_seq_len, dtype=torch.long)
 
-        for feat in feature_tensors:
-            seq_len = feat.shape[0]
-            attention_mask = torch.ones(max_seq_len)
-            attention_mask[seq_len:] = 0
-            attention_masks.append(attention_mask)
-
-            if seq_len < max_seq_len:
-                padding = torch.zeros(max_seq_len - seq_len, feature_dim)
-                padded_feat = torch.cat([feat, padding], dim=0)
-            else:
-                padded_feat = feat
-
-            padded_features.append(padded_feat)
-
-        batched_features = torch.stack(padded_features)
-        batched_attention_masks = torch.stack(attention_masks)
+        for idx, (feat, seq_len) in enumerate(zip(feature_tensors, lengths)):
+            if feat.shape[1] != feature_dim:
+                raise ValueError(
+                    "All Whisper features in a batch must share the same dimensionality"
+                )
+            batched_features[idx, :seq_len] = feat[:seq_len]
+            batched_attention_masks[idx, :seq_len] = 1
 
         labels = self.tokenizer(
             docids, padding="longest", return_tensors="pt"

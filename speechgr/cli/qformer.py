@@ -12,6 +12,7 @@ from transformers import AutoTokenizer, set_seed
 from speechgr.data import (
     IndexingCollator,
     SlueSQA5DatasetV2,
+    SlueSQA5WhisperCachedDataset,
     SlueSQA5WhisperDataset,
     WhisperIndexingCollator,
 )
@@ -141,28 +142,57 @@ def _build_discrete_datasets(cfg: QFormerConfig, data_cfg: DataConfig, model_nam
     return train_ds, valid_ds, collator
 
 
-def _build_whisper_datasets(model_cfg: QFormerModelConfig, tokenizer):
-    train_ds = SlueSQA5WhisperDataset(
-        split="train",
-        whisper_model_name=model_cfg.whisper_model_name,
-        device=model_cfg.device,
-        model_name_or_path=model_cfg.model_name,
-        include_corpus=True,
-        debug_max_samples=model_cfg.debug_max_samples,
-        apply_spec_augment=model_cfg.apply_spec_augment,
-        time_warp_param=model_cfg.time_warp_param,
-        freq_mask_param=model_cfg.freq_mask_param,
-        time_mask_param=model_cfg.time_mask_param,
-    )
-    valid_ds = SlueSQA5WhisperDataset(
-        split="validation",
-        whisper_model_name=model_cfg.whisper_model_name,
-        device=model_cfg.device,
-        model_name_or_path=model_cfg.model_name,
-        include_corpus=False,
-        debug_max_samples=model_cfg.debug_max_samples,
-        apply_spec_augment=False,
-    )
+def _build_whisper_datasets(
+    model_cfg: QFormerModelConfig, data_cfg: DataConfig, tokenizer
+):
+    cache_root = data_cfg.precompute_root or data_cfg.feature_cache_dir
+    dataset_path = data_cfg.dataset_path
+    encoder_name = data_cfg.encoder_name or "whisper"
+
+    if cache_root and dataset_path:
+        train_ds = SlueSQA5WhisperCachedDataset(
+            split="train",
+            dataset_path=dataset_path,
+            precompute_root=cache_root,
+            encoder_name=encoder_name,
+            include_corpus=data_cfg.include_corpus,
+            train_atomic=data_cfg.train_atomic,
+            atomic_offset=data_cfg.atomic_offset,
+            corpus_splits=data_cfg.include_corpus_splits,
+        )
+        valid_ds = SlueSQA5WhisperCachedDataset(
+            split="validation",
+            dataset_path=dataset_path,
+            precompute_root=cache_root,
+            encoder_name=encoder_name,
+            include_corpus=False,
+            train_atomic=data_cfg.train_atomic,
+            atomic_offset=data_cfg.atomic_offset,
+            corpus_splits=data_cfg.include_corpus_splits,
+        )
+    else:
+        train_ds = SlueSQA5WhisperDataset(
+            split="train",
+            whisper_model_name=model_cfg.whisper_model_name,
+            device=model_cfg.device,
+            model_name_or_path=model_cfg.model_name,
+            include_corpus=True,
+            debug_max_samples=model_cfg.debug_max_samples,
+            apply_spec_augment=model_cfg.apply_spec_augment,
+            time_warp_param=model_cfg.time_warp_param,
+            freq_mask_param=model_cfg.freq_mask_param,
+            time_mask_param=model_cfg.time_mask_param,
+        )
+        valid_ds = SlueSQA5WhisperDataset(
+            split="validation",
+            whisper_model_name=model_cfg.whisper_model_name,
+            device=model_cfg.device,
+            model_name_or_path=model_cfg.model_name,
+            include_corpus=False,
+            debug_max_samples=model_cfg.debug_max_samples,
+            apply_spec_augment=False,
+        )
+
     collator = WhisperIndexingCollator(tokenizer=tokenizer)
     return train_ds, valid_ds, collator
 
@@ -179,7 +209,9 @@ def run(cfg: DictConfig) -> None:
     tokenizer = AutoTokenizer.from_pretrained(model_cfg.model_name, cache_dir="cache")
 
     if model_cfg.use_whisper_features:
-        train_ds, valid_ds, collator = _build_whisper_datasets(model_cfg, tokenizer)
+        train_ds, valid_ds, collator = _build_whisper_datasets(
+            model_cfg, data_cfg, tokenizer
+        )
     else:
         train_ds, valid_ds, collator = _build_discrete_datasets(
             qformer_cfg, data_cfg, model_cfg.model_name, tokenizer

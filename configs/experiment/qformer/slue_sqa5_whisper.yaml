@@ -1,0 +1,35 @@
+defaults:
+  - override /task: qformer
+  - override /data@data: slue_sqa5_whisper
+  - override /model@model: qformer_t5
+  - override /training@training: qformer_base
+  - override /logging@logging: wandb
+  - _self_
+
+model:
+  model_name: "google/flan-t5-base"
+  model_type: "qformer"
+  d_model_front: 512
+  n_queries: 1
+  qformer_depth: 2
+  win_size_f: 17
+  win_stride_f: 17
+  freeze_t5_encoder: false
+  use_whisper_features: true
+  whisper_model_name: "openai/whisper-base"
+  device: "cuda"
+  apply_spec_augment: false
+
+data:
+  include_corpus: true
+
+qformer:
+  max_length: 272
+  id_max_length: 128
+  run_notes: "Train flan-t5 + Q-Former with Whisper features"
+  top_k: 10
+  num_return_sequences: 10
+
+training:
+  training_args:
+    run_name: "slue_sqa5-whisper-qformer"

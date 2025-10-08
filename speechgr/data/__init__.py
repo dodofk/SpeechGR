@@ -11,6 +11,7 @@ from .collators import (
 from .slue_sqa5 import (
     DiscreteUnitDataset,
     ContinuousDataset,
+    SlueSQA5WhisperCachedDataset,
     SlueSQA5DatasetV2,
     SlueSQA5TextDataset,
     SlueSQA5WhisperDataset,
@@ -25,6 +26,7 @@ __all__ = [
     "TextIndexingCollator",
     "DiscreteUnitDataset",
     "ContinuousDataset",
+    "SlueSQA5WhisperCachedDataset",
     "SlueSQA5DatasetV2",
     "SlueSQA5TextDataset",
     "SlueSQA5WhisperDataset",
