@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
+from collections.abc import Mapping
 from typing import Iterable, Dict, Any, Optional, Union
 
 import librosa
@@ -94,25 +95,24 @@ class WhisperEncoder(ModalityEncoder):
         cache: Dict[str, Dict[str, Any]] = {}
 
         for sample in samples:
-            audio_payload = sample
-            if isinstance(sample, dict):
-                if self.audio_field not in sample:
-                    raise KeyError(
-                        f"Expected audio field '{self.audio_field}' in sample keys "
-                        f"{list(sample.keys())}"
-                    )
-                audio_payload = sample[self.audio_field]
-
-            if isinstance(audio_payload, dict):
-                audio = audio_payload["array"]
-                sampling_rate = audio_payload["sampling_rate"]
+            if isinstance(sample, Mapping):
+                sample_mapping = sample
             else:  # pragma: no cover - defensive
                 raise TypeError(
-                    "Audio payload must be a mapping with 'array' and 'sampling_rate'"
+                    f"Expected Mapping samples; got {type(sample)!r}"
                 )
 
+            if self.audio_field not in sample_mapping:
+                raise KeyError(
+                    f"Expected audio field '{self.audio_field}' in sample keys "
+                    f"{list(sample_mapping.keys())}"
+                )
+
+            audio_payload = sample_mapping[self.audio_field]
+            audio, sampling_rate = self._decode_audio_payload(audio_payload)
+
             features = self.encode_audio(audio, sampling_rate)
-            sample_id = sample.get(self.sample_id_field) if isinstance(sample, dict) else None
+            sample_id = sample_mapping.get(self.sample_id_field)
             if sample_id is None:
                 raise KeyError(
                     f"Expected '{self.sample_id_field}' field in dataset sample during precompute"
@@ -151,6 +151,39 @@ class WhisperEncoder(ModalityEncoder):
                 "sampling_rate": 16000,
             }
         return normalized
+
+    # ------------------------------------------------------------------
+    def _decode_audio_payload(self, payload: Any) -> tuple[np.ndarray, int]:
+        """Support multiple HF audio representations."""
+
+        if isinstance(payload, Mapping):
+            audio = payload["array"]
+            sampling_rate = payload["sampling_rate"]
+            return audio, int(sampling_rate)
+
+        if hasattr(payload, "decode"):  # TorchCodec decoder provides decode()
+            decoded = payload.decode()
+        elif callable(payload):  # Fallback: try invoking the object
+            decoded = payload()
+        else:
+            raise TypeError(
+                "Audio payload must be a mapping or provide a decode() method"
+            )
+
+        if isinstance(decoded, Mapping):
+            return decoded["array"], int(decoded.get("sampling_rate", 16000))
+
+        if isinstance(decoded, tuple) and len(decoded) == 2:
+            audio, sampling_rate = decoded
+            return audio, int(sampling_rate)
+
+        if isinstance(decoded, np.ndarray):
+            sampling_rate = getattr(payload, "sampling_rate", 16000)
+            return decoded, int(sampling_rate)
+
+        raise TypeError(
+            "Decoded audio payload not understood; expected ndarray or mapping"
+        )
 
 
 __all__ = ["WhisperEncoder"]
