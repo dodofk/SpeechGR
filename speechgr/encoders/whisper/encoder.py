@@ -161,29 +161,75 @@ class WhisperEncoder(ModalityEncoder):
             sampling_rate = payload["sampling_rate"]
             return audio, int(sampling_rate)
 
-        if hasattr(payload, "decode"):  # TorchCodec decoder provides decode()
-            decoded = payload.decode()
-        elif callable(payload):  # Fallback: try invoking the object
+        decoder = getattr(payload, "decode", None)
+        if callable(decoder):
+            decoded = decoder()
+            return self._normalize_decoded(decoded, payload)
+
+        decode_example = getattr(payload, "decode_example", None)
+        if callable(decode_example):
+            decoded = decode_example()
+            return self._normalize_decoded(decoded, payload)
+
+        to_numpy = getattr(payload, "to_numpy", None)
+        if callable(to_numpy):
+            audio = to_numpy()
+            return audio, self._infer_sampling_rate(payload)
+
+        if callable(payload):  # Final fallback: attempt call with no args
             decoded = payload()
-        else:
+            return self._normalize_decoded(decoded, payload)
+
+        try:
+            audio = np.asarray(payload)
+            return audio, self._infer_sampling_rate(payload)
+        except Exception as exc:  # pragma: no cover - defensive
             raise TypeError(
                 "Audio payload must be a mapping or provide a decode() method"
-            )
+            ) from exc
 
+    # ------------------------------------------------------------------
+    def _normalize_decoded(
+        self, decoded: Any, original_payload: Any
+    ) -> tuple[np.ndarray, int]:
         if isinstance(decoded, Mapping):
-            return decoded["array"], int(decoded.get("sampling_rate", 16000))
+            audio = decoded["array"]
+            sampling_rate = decoded.get("sampling_rate")
+            if sampling_rate is None:
+                sampling_rate = self._infer_sampling_rate(original_payload)
+            return audio, int(sampling_rate)
 
         if isinstance(decoded, tuple) and len(decoded) == 2:
             audio, sampling_rate = decoded
             return audio, int(sampling_rate)
 
         if isinstance(decoded, np.ndarray):
-            sampling_rate = getattr(payload, "sampling_rate", 16000)
-            return decoded, int(sampling_rate)
+            return decoded, self._infer_sampling_rate(original_payload)
+
+        # Some decoders return objects with .array / .sampling_rate attrs
+        arr_attr = getattr(decoded, "array", None)
+        if arr_attr is not None:
+            sr = getattr(decoded, "sampling_rate", None)
+            if sr is None and hasattr(decoded, "metadata"):
+                sr = decoded.metadata.get("sampling_rate")
+            if sr is None:
+                sr = self._infer_sampling_rate(original_payload)
+            return arr_attr, int(sr)
 
         raise TypeError(
             "Decoded audio payload not understood; expected ndarray or mapping"
         )
+
+    # ------------------------------------------------------------------
+    def _infer_sampling_rate(self, payload: Any) -> int:
+        sr = getattr(payload, "sampling_rate", None)
+        if sr is None and hasattr(payload, "metadata"):
+            metadata = payload.metadata
+            if isinstance(metadata, Mapping):
+                sr = metadata.get("sampling_rate") or metadata.get("sample_rate")
+        if sr is None:
+            sr = 16000
+        return int(sr)
 
 
 __all__ = ["WhisperEncoder"]
