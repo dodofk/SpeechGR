@@ -34,7 +34,7 @@ from speechgr import (
     to_dataclass,
 )
 from speechgr.trainer import DSITrainer
-from speechgr.utils import RestrictDecodeVocab
+from speechgr.utils_legacy import RestrictDecodeVocab
 
 
 logger = logging.getLogger(__name__)
@@ -322,7 +322,6 @@ def run(cfg: DictConfig) -> None:
         compute_metrics=make_compute_metrics(fast_tokenizer, train_dataset.valid_ids),
         id_max_length=run_cfg.id_max_length,
         restrict_decode_vocab=restrict_decode_vocab,
-        train_continuous_embedding=model_cfg.train_continuous_embedding,
     )
 
     trainer.max_length = run_cfg.max_length

@@ -1,0 +1,47 @@
+defaults:
+  - _self_
+
+hydra:
+  run:
+    dir: outputs/${now:%Y-%m-%d}/${now:%H-%M-%S}
+
+data:
+  id_map: ???
+  semantic_map: ???
+  audio_root: ???
+  indexing_prob: 0.5
+  crop_duration: 3.0
+  batch_size: 16
+  num_workers: 4
+  sample_rate: 16000
+
+model:
+  ssl_model_name: "microsoft/wavlm-large"
+  ssl_layer: 24
+  semantic_vocab_size: 5000
+  retrieval_vocab_size: 256
+  d_model: 768
+  num_heads: 8
+  num_layers: 4
+  dim_feedforward: 2048
+  dropout: 0.1
+
+training:
+  lr: 1e-4
+  epochs: 20
+  lambda_ret: 2.0
+  seed: 42
+  save_steps: 1000
+  grad_clip: 1.0
+
+logging:
+  project: "speechgr-unity"
+  name: "unity_pretrain"
+  entity: null
+  mode: "online" # set to "disabled" for smoke tests
+
+env:
+  precision: "32-true" # 16-mixed, bf16-mixed
+  devices: 1
+  accelerator: "auto"
+  strategy: "auto"

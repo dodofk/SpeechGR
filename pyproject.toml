@@ -25,6 +25,9 @@ dependencies = [
     "wandb",
     "einops",
     "torchcodec",
+    "rank-bm25",
+    "sentence-transformers",
+    "lightning>=2.6.1",
 ]
 
 [project.optional-dependencies]

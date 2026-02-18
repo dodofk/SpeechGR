@@ -12,47 +12,22 @@ class DSITrainer(Trainer):
         self,
         restrict_decode_vocab,
         id_max_length: int = 128,
-        train_continuous_embedding: bool = False,
-        use_whisper_features: bool = False,
         **kwds,
     ):
         super().__init__(**kwds)
         self.restrict_decode_vocab = restrict_decode_vocab
         self.id_max_length = id_max_length
-        self.train_continuous_embedding = train_continuous_embedding
-        self.use_whisper_features = use_whisper_features
         # Default decoding knobs; Hydra overrides update these after instantiation.
         self.num_return_sequences = 1
         self.top_k = 1
 
     def compute_loss(self, model, inputs, return_outputs=False):
-        if self.train_continuous_embedding:
-            if self.use_whisper_features:
-                # Use input_features for Whisper features
-                loss = model(
-                    input_features=inputs["input_features"],
-                    attention_mask=inputs["attention_mask"],
-                    labels=inputs["labels"],
-                ).loss
-            else:
-                # Use inputs_embeds for other continuous features
-                loss = model(
-                    inputs_embeds=inputs["input_features"],
-                    attention_mask=inputs["attention_mask"],
-                    labels=inputs["labels"],
-                ).loss
-            if return_outputs:
-                return loss, [None, None]  # fake outputs
-            return loss
-        else:
-            loss = model(
-                input_ids=inputs["input_ids"],
-                attention_mask=inputs["attention_mask"],
-                labels=inputs["labels"],
-            ).loss
-            if return_outputs:
-                return loss, [None, None]  # fake outputs
-            return loss
+        if "query_doc_id" in inputs:
+            inputs.pop("query_doc_id")
+        loss = model(**inputs).loss
+        if return_outputs:
+            return loss, [None, None]  # fake outputs
+        return loss
 
     def prediction_step(
         self,
@@ -85,8 +60,8 @@ class DSITrainer(Trainer):
             generation_kwargs["prefix_allowed_tokens_fn"] = self.restrict_decode_vocab
 
         with torch.no_grad():
-            if self.train_continuous_embedding and "input_features" in inputs:
-                feature_input = inputs["input_features"].to(self.args.device)
+            if "inputs_embeds" in inputs:
+                feature_input = inputs["inputs_embeds"].to(self.args.device)
                 batch_size = feature_input.shape[0]
                 batch_beams = model.generate(
                     inputs_embeds=feature_input,
@@ -259,23 +234,35 @@ class SelfNegMiningCallback(TrainerCallback):
         device = args.device
         for batch in train_dataloader:
             # crude query id: hash of input tokens
-            qids = batch["query_doc_id"]
-            batch.pop("query_doc_id")
+            qids = batch.get("query_doc_id")
+            if qids is not None:
+                batch.pop("query_doc_id")
 
             # convert qids to list
             if torch.is_tensor(qids):
                 qids = qids.tolist()
-            batch = {k: v.to(device) for k, v in batch.items()}
+            
+            batch = {k: v.to(device) for k, v in batch.items() if torch.is_tensor(v)}
 
             with torch.no_grad():
-                beams = model.generate(
-                    input_ids=batch["input_ids"],
-                    num_beams=self.beam_k + 1,
-                    num_return_sequences=self.beam_k + 1,
-                    max_length=128,
-                    early_stopping=True,
-                    prefix_allowed_tokens_fn=self.trainer.restrict_decode_vocab,
-                )
+                if "inputs_embeds" in batch:
+                    beams = model.generate(
+                        inputs_embeds=batch["inputs_embeds"],
+                        num_beams=self.beam_k + 1,
+                        num_return_sequences=self.beam_k + 1,
+                        max_length=128,
+                        early_stopping=True,
+                        prefix_allowed_tokens_fn=self.trainer.restrict_decode_vocab,
+                    )
+                else:
+                    beams = model.generate(
+                        input_ids=batch["input_ids"],
+                        num_beams=self.beam_k + 1,
+                        num_return_sequences=self.beam_k + 1,
+                        max_length=128,
+                        early_stopping=True,
+                        prefix_allowed_tokens_fn=self.trainer.restrict_decode_vocab,
+                    )
 
             # [B*(k+1),L]
             gold = batch["labels"].clone()
@@ -410,7 +397,7 @@ class DSIRankingTrainer(DSITrainer):
         """
 
         # --------- constants / shortcuts ---------
-        device = inputs["input_ids"].device if "input_ids" in inputs else inputs["input_features"].device
+        device = inputs.get("input_ids", inputs.get("inputs_embeds")).device
         pad_id = self.tokenizer.pad_token_id
 
         qids = inputs["query_doc_id"]
@@ -420,31 +407,10 @@ class DSIRankingTrainer(DSITrainer):
             qids = qids.tolist()
 
         # --------- forward pass (gives CE) ---------
-        if self.train_continuous_embedding:
-            if self.use_whisper_features:
-                # Use input_features for Whisper features
-                out = model(
-                    input_features=inputs["input_features"],
-                    attention_mask=inputs["attention_mask"],
-                    labels=inputs["labels"],
-                    output_hidden_states=True,
-                )
-            else:
-                # Use inputs_embeds for other continuous features
-                out = model(
-                    inputs_embeds=inputs["input_features"],
-                    attention_mask=inputs["attention_mask"],
-                    labels=inputs["labels"],
-                    output_hidden_states=True,
-                )
-        else:
-            # Use input_ids for discrete tokens
-            out = model(
-                input_ids=inputs["input_ids"],
-                attention_mask=inputs["attention_mask"],
-                labels=inputs["labels"],
-                output_hidden_states=True,
-            )
+        out = model(
+            **inputs,
+            output_hidden_states=True,
+        )
             
         ce_loss = out.loss
         # enc_hid = out.encoder_last_hidden_state  # [B,Btok,d]
@@ -456,14 +422,7 @@ class DSIRankingTrainer(DSITrainer):
         # mask = labels != -100
         lbl = labels.clone()
         lbl[lbl == -100] = pad_id
-        # log_p = torch.log_softmax(logits, dim=-1)
-        # # s_pos = (log_p.gather(-1, lbl.unsqueeze(-1)).squeeze(-1) * mask).sum(-1)  # [B]
-
-        # print("debug out available: ", out.decoder_hidden_states[-1].shape)
         dec_hidden_state = out.decoder_hidden_states[-1]
-        # dec_embs = model.decoder.embed_tokens(lbl)
-        # print("dec_embs shape: ", dec_embs.shape)
-        # s_pos = (dec_hidden_state * dec_embs).sum(-1).sum(-1)
         s_pos = self._ripor_logprob(dec_hidden_state, labels)
 
         total_loss = ce_loss
@@ -504,19 +463,20 @@ class DSIRankingTrainer(DSITrainer):
         # 2) SELF-MINED HARD NEGATIVES (only if λ_hard ≠ 0)
         # ================================================================
         if self.lambda_hard != 0.0:
-            raise NotImplementedError("Self-mined hard negatives are not done")
             hard_ids, hard_enc = [], []
             for qid, enc in zip(qids, dec_hidden_state):
                 for neg in self.hardneg_cache.get(qid, []):
                     hard_ids.append(neg.to(device))
                     hard_enc.append(enc)
-            print("debug hard ids: ", hard_ids)
+            
             if hard_ids:  # avoid zero-length tensor
                 hard_ids = torch.stack(hard_ids)
                 hard_enc = torch.stack(hard_enc)
 
+                # Each query hidden state repeated Kh times, already handled in loops above
                 with torch.enable_grad():
-                    s_hard = model.ripor_logprob(hard_enc, hard_ids)  # [B*Kh]
+                    s_hard = self._ripor_logprob(hard_enc, hard_ids)  # [B*Kh]
+                
                 Kh = s_hard.numel() // B
                 s_hard = s_hard.view(B, Kh)
 
@@ -527,7 +487,6 @@ class DSIRankingTrainer(DSITrainer):
                     margin=1.0,
                 )
                 total_loss = total_loss + self.lambda_hard * hard_loss
-                print("Debugging hard loss: ", hard_loss)
                 rank_losses["selfneg"] = hard_loss.detach()
 
         self.state.loss_ce_step = ce_loss.detach()
@@ -551,7 +510,7 @@ if __name__ == "__main__":
     from transformers import AutoTokenizer
     from torch.utils.data import Subset
     from transformers import TrainingArguments
-    from speechgr.utils import RestrictDecodeVocab
+    from speechgr.utils_legacy import RestrictDecodeVocab
 
     tokenizer = AutoTokenizer.from_pretrained("google/flan-t5-base")
     train_dataset = SlueSQA5DatasetV2(

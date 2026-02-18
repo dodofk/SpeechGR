@@ -85,7 +85,7 @@ class ContinuousIndexingCollator(DataCollatorWithPadding):
         labels[labels == self.tokenizer.pad_token_id] = -100
 
         return {
-            "input_features": padded_features,
+            "inputs_embeds": padded_features,
             "attention_mask": padded_inputs["attention_mask"],
             "labels": labels,
         }
@@ -144,7 +144,7 @@ class WhisperIndexingCollator(DataCollatorWithPadding):
         labels[labels == self.tokenizer.pad_token_id] = -100
 
         return {
-            "input_features": batched_features,
+            "inputs_embeds": batched_features,
             "attention_mask": batched_attention_masks,
             "labels": labels,
             "query_doc_id": torch.tensor(doc_indices, dtype=torch.long),

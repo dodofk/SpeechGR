@@ -20,7 +20,7 @@ from speechgr import (
     to_dataclass,
 )
 from speechgr.trainer import DSIRankingTrainer, NegLambdaScheduleCallback, RankingLossCallback
-from speechgr.utils import RestrictDecodeVocab
+from speechgr.utils_legacy import RestrictDecodeVocab
 
 
 logger = logging.getLogger(__name__)

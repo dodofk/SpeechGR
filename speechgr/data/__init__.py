@@ -8,7 +8,7 @@ from .collators import (
     WhisperIndexingCollator,
     TextIndexingCollator,
 )
-from .slue_sqa5 import (
+from .slue import (
     DiscreteUnitDataset,
     ContinuousDataset,
     SlueSQA5WhisperCachedDataset,

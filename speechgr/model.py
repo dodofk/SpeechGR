@@ -27,24 +27,24 @@ class ContinousEmbT5(T5ForConditionalGeneration):
         nn.init.xavier_uniform_(self.linear_adapter.weight)
         nn.init.constant_(self.linear_adapter.bias, 0.0)
 
-    def forward(self, input_embeds=None, attention_mask=None, labels=None, **kwargs):
+    def forward(self, inputs_embeds=None, attention_mask=None, labels=None, **kwargs):
         """
         Args:
-          input_embeds: (batch_size, seq_len, ssl_feat_dim * downsample_factor)
+          inputs_embeds: (batch_size, seq_len, ssl_feat_dim * downsample_factor)
             The user supplies their own embeddings from SSL or a downsampling step.
           attention_mask: (batch_size, seq_len)
           labels: (batch_size, tgt_seq_len) for seq2seq training
           kwargs: anything else T5's forward might expect (like decoder_input_ids, etc.).
         """
         # 1) Project the custom input embeddings into T5's hidden dimension
-        if input_embeds is not None:
-            input_embeds = self.linear_adapter(input_embeds)
+        if inputs_embeds is not None:
+            inputs_embeds = self.linear_adapter(inputs_embeds)
 
         # 2) Pass them to T5
         return super().forward(
             # We pass input_ids=None to ensure T5 doesn't do its own embedding lookup
             input_ids=None,
-            inputs_embeds=input_embeds,
+            inputs_embeds=inputs_embeds,
             attention_mask=attention_mask,
             labels=labels,
             **kwargs,
@@ -537,22 +537,18 @@ class QFormerT5(T5ForConditionalGeneration):
     def forward(
         self,
         input_ids: torch.Tensor = None,
-        inputs_embeds: torch.Tensor = None,  # For discrete units
-        input_features: torch.Tensor = None,  # For Whisper features  
+        inputs_embeds: torch.Tensor = None,
         attention_mask=None,
         **kwargs,
     ):
         # Determine which type of input to use
-        if self.use_whisper_features and input_features is not None:
-            # Use Whisper features
-            proj_features = self.front_proj(input_features)
-            input_embeds_to_use = proj_features
-        elif inputs_embeds is not None:
-            # Use discrete unit embeddings
+        # In the refactored version, Whisper features or discrete unit embeddings
+        # both arrive as 'inputs_embeds'.
+        if inputs_embeds is not None:
             proj_features = self.front_proj(inputs_embeds)
             input_embeds_to_use = proj_features
         else:
-            # Use input_ids with shared embedding lookup
+            # Use input_ids with shared embedding lookup (or let T5 handle it)
             input_embeds_to_use = None
 
         # Handle attention mask and encoder outputs

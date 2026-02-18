@@ -26,7 +26,7 @@ from speechgr import (
     to_dataclass,
 )
 from speechgr.trainer import DSITrainer
-from speechgr.utils import RestrictDecodeVocab
+from speechgr.utils_legacy import RestrictDecodeVocab
 
 
 logger = logging.getLogger(__name__)
@@ -232,8 +232,6 @@ def run(cfg: DictConfig) -> None:
         compute_metrics=metrics_fn,
         id_max_length=qformer_cfg.id_max_length,
         restrict_decode_vocab=restrict_vocab,
-        train_continuous_embedding=model_cfg.use_whisper_features,
-        use_whisper_features=model_cfg.use_whisper_features,
     )
 
     trainer.max_length = qformer_cfg.max_length or 20
