@@ -22,6 +22,11 @@ training:
   epochs: 50
   save_steps: 1000
 
+logging:
+  project: "speechgr-rqvae"
+  name: "rqvae_training"
+  mode: "online" # set to "disabled" to skip wandb
+
 hydra:
   run:
     dir: outputs/rqvae/${now:%Y-%m-%d}/${now:%H-%M-%S}

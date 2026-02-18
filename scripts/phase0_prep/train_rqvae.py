@@ -8,6 +8,7 @@ from omegaconf import DictConfig, OmegaConf
 from tqdm import tqdm
 import soundfile as sf
 import numpy as np
+import wandb
 
 from speechgr.models.ssl_wrapper import SSLModelWrapper
 from speechgr.models.rqvae import RQVAE
@@ -46,9 +47,17 @@ class AudioManifestDataset(Dataset):
             logger.error(f"Error loading {path}: {e}")
             return torch.zeros(self.max_length, dtype=torch.float32)
 
-@hydra.main(version_base=None)
+@hydra.main(version_base=None, config_path="../../configs")
 def main(cfg: DictConfig):
     print(OmegaConf.to_yaml(cfg))
+    
+    # Initialize wandb
+    wandb.init(
+        project=cfg.logging.project,
+        name=cfg.logging.name,
+        config=OmegaConf.to_container(cfg, resolve=True),
+        mode=cfg.logging.mode
+    )
     
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     
@@ -104,6 +113,7 @@ def main(cfg: DictConfig):
             optimizer.step()
             
             step += 1
+            wandb.log({"train/loss": loss.item(), "epoch": epoch}, step=step)
             pbar.set_description(f"Epoch {epoch} | Loss: {loss.item():.4f}")
             
             if step % cfg.training.save_steps == 0:
@@ -129,6 +139,7 @@ def main(cfg: DictConfig):
             
             if val_steps > 0:
                 avg_val_loss = total_val_loss / val_steps
+                wandb.log({"val/loss": avg_val_loss}, step=step)
                 logger.info(f"Epoch {epoch} | Val Loss: {avg_val_loss:.4f}")
             rqvae.train()
 
@@ -136,6 +147,4 @@ def main(cfg: DictConfig):
     final_path = os.path.join(os.getcwd(), "rqvae_final.pt")
     torch.save(rqvae.state_dict(), final_path)
     logger.info(f"Saved final model to {final_path}")
-
-if __name__ == "__main__":
-    main()
+    wandb.finish()
