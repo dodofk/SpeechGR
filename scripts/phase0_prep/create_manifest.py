@@ -15,8 +15,7 @@ def main():
     
     with open(args.output_path, "w") as f:
         for p in audio_files:
-            f.write(f"{os.path.abspath(p)}
-")
+            f.write(f"{os.path.abspath(p)}\n")
             
     print("Done.")
 
