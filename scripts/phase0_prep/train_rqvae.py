@@ -148,3 +148,6 @@ def main(cfg: DictConfig):
     torch.save(rqvae.state_dict(), final_path)
     logger.info(f"Saved final model to {final_path}")
     wandb.finish()
+
+if __name__ == "__main__":
+    main()
