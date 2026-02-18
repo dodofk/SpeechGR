@@ -1,0 +1,27 @@
+# @package _global_
+
+ssl:
+  model_name: "microsoft/wavlm-large"
+  layer: 24
+
+rqvae:
+  latent_dim: 1024
+  codebook_size: 256
+  num_codebooks: 8
+  commitment_cost: 0.25
+
+data:
+  manifest_path: ???
+  val_manifest: null
+  max_length: 160000 # 10 seconds
+  num_workers: 4
+
+training:
+  batch_size: 32
+  lr: 1e-4
+  epochs: 50
+  save_steps: 1000
+
+hydra:
+  run:
+    dir: outputs/rqvae/${now:%Y-%m-%d}/${now:%H-%M-%S}

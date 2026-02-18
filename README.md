@@ -115,24 +115,40 @@ Then point `fairseq_root` in the Hydra configs (e.g., `configs/precompute_hubert
 ## RQ-VAE Training and Usage
 SpeechGR supports training RQ-VAE (Residual Quantization Variational Autoencoder) on top of SSL features (e.g., HuBERT, WavLM) and using it as a discrete encoder.
 
-### Training RQ-VAE
-Train an RQ-VAE model using the provided script. You need a manifest file containing paths to audio files (one per line).
-
+### 1. Download Dataset (LibriSpeech)
+For Phase 0 training, we recommend starting with LibriSpeech-100:
 ```bash
-# Train on HuBERT-base features
-python scripts/train_rqvae.py \
-    ssl.model_name="facebook/hubert-base-ls960" \
-    rqvae.codebook_size=1024 \
-    rqvae.num_codebooks=4 \
-    data.manifest_path=/path/to/train.manifest \
-    data.val_manifest=/path/to/val.manifest  # Optional validation
+mkdir -p data/librispeech && cd data/librispeech
+wget http://www.openslr.org/resources/12/train-clean-100.tar.gz
+tar -xvf train-clean-100.tar.gz
+# (Optional) Download dev-clean for validation
+wget http://www.openslr.org/resources/12/dev-clean.tar.gz
+tar -xvf dev-clean.tar.gz
+cd ../..
 ```
 
-Key arguments:
-*   `ssl.model_name`: HuggingFace model ID for the upstream SSL model (default: `facebook/hubert-base-ls960`).
-*   `rqvae.codebook_size`: Number of codes per codebook.
-*   `rqvae.num_codebooks`: Number of residual quantization levels.
-*   `training.save_steps`: Frequency of checkpoint saving.
+### 2. Prepare Manifests
+The RQ-VAE training script requires a `.txt` manifest of absolute audio paths:
+```bash
+# Training manifest
+uv run python scripts/phase0_prep/create_manifest.py \
+    --audio_root data/librispeech/LibriSpeech/train-clean-100 \
+    --output_path data/train_manifest.txt
+
+# Validation manifest
+uv run python scripts/phase0_prep/create_manifest.py \
+    --audio_root data/librispeech/LibriSpeech/dev-clean \
+    --output_path data/val_manifest.txt
+```
+
+### 3. Training RQ-VAE
+Train the model using the Hydra config:
+```bash
+uv run python scripts/phase0_prep/train_rqvae.py \
+    --config-name training/rqvae \
+    data.manifest_path=data/train_manifest.txt \
+    data.val_manifest=data/val_manifest.txt
+```
 
 ### Using RQ-VAE in Experiments
 To use the trained RQ-VAE as an encoder in SpeechGR experiments, configure the `rqvae` encoder in your experiment config:
