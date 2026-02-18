@@ -2,6 +2,7 @@ import logging
 import os
 import hydra
 import torch
+import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader, Dataset
 from omegaconf import DictConfig, OmegaConf
@@ -11,14 +12,13 @@ import numpy as np
 import wandb
 
 from speechgr.models.ssl_wrapper import SSLModelWrapper
-from speechgr.models.rqvae import RQVAE
+from speechgr.models.rqvae import DocumentRQVAE
 
 logger = logging.getLogger(__name__)
 
 class AudioManifestDataset(Dataset):
     """
-    Simple dataset to load audio from a manifest file.
-    Manifest file should contain paths to audio files, one per line.
+    Dataset to load audio and return mask information.
     """
     def __init__(self, manifest_path, max_length=160000):
         with open(manifest_path, 'r') as f:
@@ -31,27 +31,34 @@ class AudioManifestDataset(Dataset):
     def __getitem__(self, idx):
         path = self.lines[idx]
         try:
-            # Load audio (assuming 16k mono for simplicity, real impl might need resampling)
             wav, sr = sf.read(path)
             if len(wav.shape) > 1:
-                wav = wav.mean(axis=1) # mix to mono
+                wav = wav.mean(axis=1)
             
+            orig_len = len(wav)
             # Pad or trim
-            if len(wav) > self.max_length:
+            if orig_len > self.max_length:
                 wav = wav[:self.max_length]
+                actual_len = self.max_length
             else:
-                wav = np.pad(wav, (0, self.max_length - len(wav)))
+                actual_len = orig_len
+                wav = np.pad(wav, (0, self.max_length - orig_len))
                 
-            return torch.tensor(wav, dtype=torch.float32)
+            return torch.tensor(wav, dtype=torch.float32), torch.tensor(actual_len, dtype=torch.long)
         except Exception as e:
             logger.error(f"Error loading {path}: {e}")
-            return torch.zeros(self.max_length, dtype=torch.float32)
+            return torch.zeros(self.max_length, dtype=torch.float32), torch.tensor(0, dtype=torch.long)
+
+def create_mask(lengths, max_len, device):
+    """Create a binary mask: 1 for valid, 0 for padding."""
+    batch_size = lengths.size(0)
+    mask = torch.arange(max_len, device=device).expand(batch_size, max_len) < lengths.unsqueeze(1)
+    return mask.float()
 
 @hydra.main(version_base=None, config_path="../../configs")
 def main(cfg: DictConfig):
     print(OmegaConf.to_yaml(cfg))
     
-    # Initialize wandb
     wandb.init(
         project=cfg.logging.project,
         name=cfg.logging.name,
@@ -69,13 +76,17 @@ def main(cfg: DictConfig):
         freeze=True
     ).to(device)
     
-    logger.info("Initializing RQ-VAE...")
-    rqvae = RQVAE(
+    logger.info("Initializing Robust DocumentRQVAE...")
+    # Map Hydra config to DocumentRQVAE params
+    rqvae = DocumentRQVAE(
         input_dim=ssl_model.feature_dim,
         latent_dim=cfg.rqvae.latent_dim,
         codebook_size=cfg.rqvae.codebook_size,
         num_codebooks=cfg.rqvae.num_codebooks,
-        commitment_cost=cfg.rqvae.commitment_cost
+        commitment_cost=cfg.rqvae.commitment_cost,
+        decay=getattr(cfg.rqvae, "decay", 0.99),
+        num_encoder_layers=getattr(cfg.rqvae, "num_encoder_layers", 4),
+        num_decoder_layers=getattr(cfg.rqvae, "num_decoder_layers", 4)
     ).to(device)
     
     # 2. Setup Data
@@ -97,17 +108,22 @@ def main(cfg: DictConfig):
     for epoch in range(cfg.training.epochs):
         rqvae.train()
         pbar = tqdm(dataloader)
-        for audio in pbar:
+        for audio, lengths in pbar:
             audio = audio.to(device)
+            lengths = lengths.to(device)
             
             optimizer.zero_grad()
             
             # Extract SSL features
             with torch.no_grad():
-                features = ssl_model(audio) # [B, T, D]
+                features = ssl_model(audio) # [B, T_feat, D]
+                # SSL models might downsample (e.g. WavLM is 50Hz, so 320x downsampling)
+                # We need to adjust length and mask for features
+                feat_lengths = torch.clamp(lengths // 320, max=features.size(1))
+                mask = create_mask(feat_lengths, features.size(1), device)
             
-            # Forward RQ-VAE
-            recon, loss, _ = rqvae(features)
+            # Forward RQ-VAE with mask
+            recon, loss, _ = rqvae(features, mask=mask)
             
             loss.backward()
             optimizer.step()
@@ -127,11 +143,14 @@ def main(cfg: DictConfig):
             total_val_loss = 0
             val_steps = 0
             with torch.no_grad():
-                for audio in val_dataloader:
+                for audio, lengths in val_dataloader:
                     audio = audio.to(device)
+                    lengths = lengths.to(device)
                     try:
                         features = ssl_model(audio)
-                        _, loss, _ = rqvae(features)
+                        feat_lengths = torch.clamp(lengths // 320, max=features.size(1))
+                        mask = create_mask(feat_lengths, features.size(1), device)
+                        _, loss, _ = rqvae(features, mask=mask)
                         total_val_loss += loss.item()
                         val_steps += 1
                     except Exception as e:
