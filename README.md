@@ -92,6 +92,76 @@ uv run jupyter notebook
 
 This ensures the kernel sees the same dependencies as the CLI runners.
 
+## AMD GPU Setup (ROCm)
+
+For AMD GPUs (e.g., Radeon 7900 XTX), you need ROCm instead of CUDA. The setup is nearly identical, with two key differences:
+
+### 1. Install ROCm System Dependencies
+
+```bash
+# Ubuntu 22.04
+wget https://repo.radeon.com/amdgpu-install/6.0.2/ubuntu/jammy/amdgpu-install_6.0.2-602_all.deb
+sudo dpkg -i amdgpu-install_6.0.2-602_all.deb
+sudo amdgpu-install --usecase=rocm
+sudo usermod -a -G render,video $USER
+sudo reboot
+```
+
+Verify installation:
+```bash
+rocminfo | grep gfx1100  # Should show gfx1100 for 7900 XTX
+rocm-smi                 # GPU status
+```
+
+### 2. Create UV Environment with ROCm PyTorch
+
+```bash
+# Use Python 3.10 (better ROCm support)
+uv venv --python 3.10
+source .venv/bin/activate
+
+# Install PyTorch with ROCm support (CRITICAL)
+uv pip install torch==2.1.1 torchvision torchaudio \
+    --index-url https://download.pytorch.org/whl/rocm6.0
+
+# Install remaining dependencies
+uv pip install -e .
+```
+
+### 3. Required Environment Variable
+
+**Critical:** Set this before every run or add to `~/.bashrc`:
+
+```bash
+export HSA_OVERRIDE_GFX_VERSION=11.0.0
+```
+
+You can also create a helper script `run_rocm.sh`:
+```bash
+#!/bin/bash
+export HSA_OVERRIDE_GFX_VERSION=11.0.0
+uv run "$@"
+```
+
+Then use: `./run_rocm.sh python scripts/phase0_prep/train_rqvae.py ...`
+
+### Verification
+
+```bash
+export HSA_OVERRIDE_GFX_VERSION=11.0.0
+uv run python -c "import torch; print(f'Device: {torch.cuda.get_device_name(0)}')"
+# Should output: AMD Radeon RX 7900 XTX
+```
+
+### Troubleshooting
+
+| Issue | Solution |
+|-------|----------|
+| `No GPU detected` | Ensure `HSA_OVERRIDE_GFX_VERSION=11.0.0` is set |
+| `HIP error` | `export ROCM_USE_FLASH_ATTN_V2_SCAN=0` |
+| Out of memory | Reduce `batch_size` in config (try 16 instead of 32) |
+| Slow performance | Normal - ROCm is ~70-80% of CUDA speed |
+
 ### SLUE SQA5 Prep
 Generate CSV manifests and encoder caches for the SLUE SQA5 splits with:
 
