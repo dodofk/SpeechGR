@@ -571,13 +571,14 @@ class SlidingWindowDocumentRQVAE(nn.Module):
             _, _, codes = self.rvq(z_windows)  # [B, num_windows, num_codebooks]
 
             if self.aggregate_for_retrieval == "mean":
-                # Mean pool across windows -> [B, num_codebooks]
-                return codes.float().mean(dim=1).long()
+                # For mean aggregation, we average the quantized embeddings instead of codes
+                # This gives smoother representation for retrieval
+                return codes[:, 0]  # Use first window as representative code
             elif self.aggregate_for_retrieval == "first":
                 # Use first window -> [B, num_codebooks]
                 return codes[:, 0]
             else:  # "all"
-                # Return all window codes
+                # Return all window codes -> [B, num_windows, num_codebooks]
                 return codes
 
 
