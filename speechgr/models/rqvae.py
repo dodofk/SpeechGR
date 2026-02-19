@@ -164,8 +164,10 @@ class DocumentRQVAE(nn.Module):
         self.latent_dim = latent_dim
         self.input_dim = input_dim
         
-        # 1. Input Projection
+        # 1. Input Projection & Normalization
         self.input_proj = nn.Linear(input_dim, latent_dim)
+        self.input_norm = nn.LayerNorm(latent_dim)
+        self.feature_norm = nn.LayerNorm(latent_dim)
         
         # 2. Transformer Encoder (Contextualizes features)
         encoder_layer = nn.TransformerEncoderLayer(
@@ -203,12 +205,13 @@ class DocumentRQVAE(nn.Module):
         B, T, _ = x.shape
         
         # --- Encode ---
-        x_emb = self.input_proj(x)
+        x_emb = self.input_norm(self.input_proj(x))
         
         # Create padding mask for Transformer (True = ignore)
         key_padding_mask = (mask == 0) if mask is not None else None
         
         z_seq = self.encoder_transformer(x_emb, src_key_padding_mask=key_padding_mask)
+        z_seq = self.feature_norm(z_seq)
         
         # --- Pool & Quantize ---
         z_pooled = self.pooling(z_seq, mask).unsqueeze(1) # [B, 1, D]
@@ -240,9 +243,10 @@ class DocumentRQVAE(nn.Module):
         """Returns the document-level discrete codes."""
         self.eval() # Ensure no EMA updates during inference
         with torch.no_grad():
-            x_emb = self.input_proj(x)
+            x_emb = self.input_norm(self.input_proj(x))
             key_padding_mask = (mask == 0) if mask is not None else None
             z_seq = self.encoder_transformer(x_emb, src_key_padding_mask=key_padding_mask)
+            z_seq = self.feature_norm(z_seq)
             z_pooled = self.pooling(z_seq, mask).unsqueeze(1)
             _, _, codes = self.rvq(z_pooled)
         return codes.squeeze(1) # [B, num_codebooks]

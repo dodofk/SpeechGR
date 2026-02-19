@@ -3,6 +3,7 @@ import os
 import hydra
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 import torch.optim as optim
 from torch.utils.data import DataLoader, Dataset
 from omegaconf import DictConfig, OmegaConf
@@ -99,8 +100,19 @@ def main(cfg: DictConfig):
         val_dataset = AudioManifestDataset(cfg.data.val_manifest, max_length=cfg.data.max_length)
         val_dataloader = DataLoader(val_dataset, batch_size=cfg.training.batch_size, shuffle=False, num_workers=num_workers)
     
-    # 3. Setup Optimizer
-    optimizer = optim.Adam(rqvae.parameters(), lr=cfg.training.lr)
+    # 3. Setup Optimizer & Scheduler
+    optimizer = optim.AdamW(rqvae.parameters(), lr=cfg.training.lr, weight_decay=0.01)
+    
+    # Calculate total steps for warmup
+    num_training_steps = cfg.training.epochs * len(dataloader)
+    num_warmup_steps = int(0.1 * num_training_steps) # 10% warmup
+    
+    from transformers import get_linear_schedule_with_warmup
+    scheduler = get_linear_schedule_with_warmup(
+        optimizer, 
+        num_warmup_steps=num_warmup_steps, 
+        num_training_steps=num_training_steps
+    )
     
     # 4. Training Loop
     logger.info(f"Starting training for {cfg.training.epochs} epochs...")
@@ -117,20 +129,34 @@ def main(cfg: DictConfig):
             # Extract SSL features
             with torch.no_grad():
                 features = ssl_model(audio) # [B, T_feat, D]
-                # SSL models might downsample (e.g. WavLM is 50Hz, so 320x downsampling)
-                # We need to adjust length and mask for features
                 feat_lengths = torch.clamp(lengths // 320, max=features.size(1))
                 mask = create_mask(feat_lengths, features.size(1), device)
             
             # Forward RQ-VAE with mask
-            recon, loss, _ = rqvae(features, mask=mask)
+            recon, total_loss, _ = rqvae(features, mask=mask)
             
-            loss.backward()
+            # Extract individual losses for logging (total_loss = recon + vq)
+            # We recalculate recon just for logging clarity
+            with torch.no_grad():
+                mask_expanded = mask.unsqueeze(-1).expand_as(features)
+                rl = F.mse_loss(recon * mask_expanded, features * mask_expanded, reduction='sum')
+                rl = rl / (mask.sum() * features.size(-1))
+                vl = total_loss - rl
+            
+            total_loss.backward()
+            torch.nn.utils.clip_grad_norm_(rqvae.parameters(), 1.0)
             optimizer.step()
+            scheduler.step()
             
             step += 1
-            wandb.log({"train/loss": loss.item(), "epoch": epoch}, step=step)
-            pbar.set_description(f"Epoch {epoch} | Loss: {loss.item():.4f}")
+            wandb.log({
+                "train/loss_total": total_loss.item(), 
+                "train/loss_recon": rl.item(),
+                "train/loss_vq": vl.item(),
+                "train/lr": scheduler.get_last_lr()[0],
+                "epoch": epoch
+            }, step=step)
+            pbar.set_description(f"Epoch {epoch} | Loss: {total_loss.item():.4f}")
             
             if step % cfg.training.save_steps == 0:
                 save_path = os.path.join(os.getcwd(), f"rqvae_checkpoint_{step}.pt")
@@ -141,6 +167,7 @@ def main(cfg: DictConfig):
         if val_dataloader:
             rqvae.eval()
             total_val_loss = 0
+            total_val_recon = 0
             val_steps = 0
             with torch.no_grad():
                 for audio, lengths in val_dataloader:
@@ -150,15 +177,26 @@ def main(cfg: DictConfig):
                         features = ssl_model(audio)
                         feat_lengths = torch.clamp(lengths // 320, max=features.size(1))
                         mask = create_mask(feat_lengths, features.size(1), device)
-                        _, loss, _ = rqvae(features, mask=mask)
+                        recon, loss, _ = rqvae(features, mask=mask)
+                        
+                        mask_expanded = mask.unsqueeze(-1).expand_as(features)
+                        rl = F.mse_loss(recon * mask_expanded, features * mask_expanded, reduction='sum')
+                        rl = rl / (mask.sum() * features.size(-1))
+                        
                         total_val_loss += loss.item()
+                        total_val_recon += rl.item()
                         val_steps += 1
                     except Exception as e:
                         logger.error(f"Error during validation: {e}")
             
             if val_steps > 0:
                 avg_val_loss = total_val_loss / val_steps
-                wandb.log({"val/loss": avg_val_loss}, step=step)
+                avg_val_recon = total_val_recon / val_steps
+                wandb.log({
+                    "val/loss_total": avg_val_loss,
+                    "val/loss_recon": avg_val_recon,
+                    "val/loss_vq": avg_val_loss - avg_val_recon
+                }, step=step)
                 logger.info(f"Epoch {epoch} | Val Loss: {avg_val_loss:.4f}")
             rqvae.train()
 
