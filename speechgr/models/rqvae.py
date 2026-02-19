@@ -229,9 +229,18 @@ class DocumentRQVAE(nn.Module):
 
         # --- Loss ---
         if mask is not None:
-            # Broadcast mask to match [B, T, D]
+            # Normalize targets to same scale as reconstruction for stable MSE
+            with torch.no_grad():
+                # We use a simple instance norm per sequence
+                target_mean = (x * mask.unsqueeze(-1)).sum(dim=1, keepdim=True) / (mask.sum(dim=1, keepdim=True).unsqueeze(-1) + 1e-6)
+                target_std = torch.sqrt(
+                    ((x - target_mean)**2 * mask.unsqueeze(-1)).sum(dim=1, keepdim=True) / 
+                    (mask.sum(dim=1, keepdim=True).unsqueeze(-1) * self.input_dim + 1e-6)
+                )
+                x_norm = (x - target_mean) / (target_std + 1e-6)
+
             mask_expanded = mask.unsqueeze(-1).expand_as(x)
-            recon_loss = F.mse_loss(x_recon * mask_expanded, x * mask_expanded, reduction='sum')
+            recon_loss = F.mse_loss(x_recon * mask_expanded, x_norm * mask_expanded, reduction='sum')
             # Normalize by valid frames * D
             recon_loss = recon_loss / (mask.sum() * self.input_dim)
         else:

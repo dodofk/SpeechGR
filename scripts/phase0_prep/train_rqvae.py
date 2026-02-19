@@ -135,11 +135,18 @@ def main(cfg: DictConfig):
             # Forward RQ-VAE with mask
             recon, total_loss, _ = rqvae(features, mask=mask)
             
-            # Extract individual losses for logging (total_loss = recon + vq)
-            # We recalculate recon just for logging clarity
+            # Extract individual losses for logging
             with torch.no_grad():
+                # Re-calculate normalized target for logging consistency
+                target_mean = (features * mask.unsqueeze(-1)).sum(dim=1, keepdim=True) / (mask.sum(dim=1, keepdim=True).unsqueeze(-1) + 1e-6)
+                target_std = torch.sqrt(
+                    ((features - target_mean)**2 * mask.unsqueeze(-1)).sum(dim=1, keepdim=True) / 
+                    (mask.sum(dim=1, keepdim=True).unsqueeze(-1) * features.size(-1) + 1e-6)
+                )
+                features_norm = (features - target_mean) / (target_std + 1e-6)
+                
                 mask_expanded = mask.unsqueeze(-1).expand_as(features)
-                rl = F.mse_loss(recon * mask_expanded, features * mask_expanded, reduction='sum')
+                rl = F.mse_loss(recon * mask_expanded, features_norm * mask_expanded, reduction='sum')
                 rl = rl / (mask.sum() * features.size(-1))
                 vl = total_loss - rl
             
@@ -179,8 +186,15 @@ def main(cfg: DictConfig):
                         mask = create_mask(feat_lengths, features.size(1), device)
                         recon, loss, _ = rqvae(features, mask=mask)
                         
+                        target_mean = (features * mask.unsqueeze(-1)).sum(dim=1, keepdim=True) / (mask.sum(dim=1, keepdim=True).unsqueeze(-1) + 1e-6)
+                        target_std = torch.sqrt(
+                            ((features - target_mean)**2 * mask.unsqueeze(-1)).sum(dim=1, keepdim=True) / 
+                            (mask.sum(dim=1, keepdim=True).unsqueeze(-1) * features.size(-1) + 1e-6)
+                        )
+                        features_norm = (features - target_mean) / (target_std + 1e-6)
+
                         mask_expanded = mask.unsqueeze(-1).expand_as(features)
-                        rl = F.mse_loss(recon * mask_expanded, features * mask_expanded, reduction='sum')
+                        rl = F.mse_loss(recon * mask_expanded, features_norm * mask_expanded, reduction='sum')
                         rl = rl / (mask.sum() * features.size(-1))
                         
                         total_val_loss += loss.item()
