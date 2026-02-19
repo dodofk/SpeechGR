@@ -9,7 +9,7 @@ rqvae:
   codebook_size: 256
   num_codebooks: 8
   commitment_cost: 0.25
-  decay: 0.99
+  decay: 0.9
   num_encoder_layers: 4
   num_decoder_layers: 4
 
@@ -29,6 +29,17 @@ logging:
   project: "speechgr-rqvae"
   name: "rqvae_transformer_ema"
   mode: "online" # set to "disabled" to skip wandb
+
+# Monitoring configuration
+monitoring:
+  enabled: true
+  enable_codebook: true
+  enable_ema: true
+  enable_recon: true
+  enable_training: true
+  enable_alerts: true
+  summary_interval: 500  # Print summary every N steps
+  alert_cooldown: 100    # Min steps between same alert type
 
 hydra:
   run:

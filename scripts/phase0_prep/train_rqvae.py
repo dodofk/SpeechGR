@@ -1,5 +1,6 @@
 import logging
 import os
+from collections import defaultdict
 import hydra
 import torch
 import torch.nn as nn
@@ -14,6 +15,7 @@ import wandb
 
 from speechgr.models.ssl_wrapper import SSLModelWrapper
 from speechgr.models.rqvae import DocumentRQVAE
+from speechgr.utils import RQVAEMonitor
 
 logger = logging.getLogger(__name__)
 
@@ -89,7 +91,21 @@ def main(cfg: DictConfig):
         num_encoder_layers=getattr(cfg.rqvae, "num_encoder_layers", 4),
         num_decoder_layers=getattr(cfg.rqvae, "num_decoder_layers", 4)
     ).to(device)
-    
+
+    # Initialize RQ-VAE Monitor
+    logger.info("Initializing RQ-VAE Monitor...")
+    mon_cfg = getattr(cfg, 'monitoring', {})
+    monitor = RQVAEMonitor(
+        model=rqvae,
+        num_embeddings=cfg.rqvae.codebook_size,
+        num_layers=cfg.rqvae.num_codebooks,
+        enable_codebook=mon_cfg.get('enable_codebook', True),
+        enable_ema=mon_cfg.get('enable_ema', True),
+        enable_recon=mon_cfg.get('enable_recon', True),
+        enable_training=mon_cfg.get('enable_training', True),
+        enable_alerts=mon_cfg.get('enable_alerts', True)
+    )
+
     # 2. Setup Data
     num_workers = getattr(cfg.data, "num_workers", 4)
     dataset = AudioManifestDataset(cfg.data.manifest_path, max_length=cfg.data.max_length)
@@ -133,48 +149,79 @@ def main(cfg: DictConfig):
                 mask = create_mask(feat_lengths, features.size(1), device)
             
             # Forward RQ-VAE with mask
-            recon, total_loss, _ = rqvae(features, mask=mask)
-            
+            recon, total_loss, codes = rqvae(features, mask=mask)
+
             # Extract individual losses for logging
             with torch.no_grad():
                 # Re-calculate normalized target for logging consistency
                 target_mean = (features * mask.unsqueeze(-1)).sum(dim=1, keepdim=True) / (mask.sum(dim=1, keepdim=True).unsqueeze(-1) + 1e-6)
                 target_std = torch.sqrt(
-                    ((features - target_mean)**2 * mask.unsqueeze(-1)).sum(dim=1, keepdim=True) / 
+                    ((features - target_mean)**2 * mask.unsqueeze(-1)).sum(dim=1, keepdim=True) /
                     (mask.sum(dim=1, keepdim=True).unsqueeze(-1) * features.size(-1) + 1e-6)
                 )
                 features_norm = (features - target_mean) / (target_std + 1e-6)
-                
+
                 mask_expanded = mask.unsqueeze(-1).expand_as(features)
                 rl = F.mse_loss(recon * mask_expanded, features_norm * mask_expanded, reduction='sum')
                 rl = rl / (mask.sum() * features.size(-1))
                 vl = total_loss - rl
-            
+
             total_loss.backward()
             torch.nn.utils.clip_grad_norm_(rqvae.parameters(), 1.0)
             optimizer.step()
             scheduler.step()
-            
+
             step += 1
-            wandb.log({
-                "train/loss_total": total_loss.item(), 
-                "train/loss_recon": rl.item(),
-                "train/loss_vq": vl.item(),
-                "train/lr": scheduler.get_last_lr()[0],
-                "epoch": epoch
-            }, step=step)
-            pbar.set_description(f"Epoch {epoch} | Loss: {total_loss.item():.4f}")
+
+            # Update monitors and get comprehensive logs
+            with torch.no_grad():
+                monitor_logs = monitor.update(
+                    codes=codes,
+                    original=features,
+                    reconstructed=recon,
+                    mask=mask,
+                    loss_components={"total": total_loss, "recon": rl, "vq": vl},
+                    optimizer=optimizer,
+                    step=step
+                )
+
+            # Check for alerts
+            alerts = monitor.check_alerts(monitor_logs, step)
+            if alerts:
+                for alert in alerts:
+                    if alert.severity == "critical":
+                        pbar.set_description(f"Epoch {epoch} | CRITICAL: {alert.rule}")
+
+            # Log all metrics to wandb
+            wandb.log(monitor_logs, step=step)
+
+            # Periodic summary printing
+            summary_interval = mon_cfg.get('summary_interval', 500)
+            if step % summary_interval == 0:
+                monitor.print_summary()
+
+            # Check if training should stop
+            if monitor.should_stop():
+                logger.error("Critical alert triggered! Stopping training.")
+                break
+
+            pbar.set_description(f"Epoch {epoch} | Loss: {total_loss.item():.4f} | "
+                               f"Util: {monitor_logs.get('codebook/avg_utilization', 0):.1%} | "
+                               f"SNR: {monitor_logs.get('recon/snr_db', 0):.1f}dB")
             
             if step % cfg.training.save_steps == 0:
                 save_path = os.path.join(os.getcwd(), f"rqvae_checkpoint_{step}.pt")
                 torch.save(rqvae.state_dict(), save_path)
                 logger.info(f"Saved checkpoint to {save_path}")
 
+            # Exit outer loop if training stopped
+            if monitor.should_stop():
+                break
+
         # Evaluation Loop
         if val_dataloader:
             rqvae.eval()
-            total_val_loss = 0
-            total_val_recon = 0
+            val_metrics_accumulator = defaultdict(list)
             val_steps = 0
             with torch.no_grad():
                 for audio, lengths in val_dataloader:
@@ -184,11 +231,11 @@ def main(cfg: DictConfig):
                         features = ssl_model(audio)
                         feat_lengths = torch.clamp(lengths // 320, max=features.size(1))
                         mask = create_mask(feat_lengths, features.size(1), device)
-                        recon, loss, _ = rqvae(features, mask=mask)
-                        
+                        recon, loss, codes = rqvae(features, mask=mask)
+
                         target_mean = (features * mask.unsqueeze(-1)).sum(dim=1, keepdim=True) / (mask.sum(dim=1, keepdim=True).unsqueeze(-1) + 1e-6)
                         target_std = torch.sqrt(
-                            ((features - target_mean)**2 * mask.unsqueeze(-1)).sum(dim=1, keepdim=True) / 
+                            ((features - target_mean)**2 * mask.unsqueeze(-1)).sum(dim=1, keepdim=True) /
                             (mask.sum(dim=1, keepdim=True).unsqueeze(-1) * features.size(-1) + 1e-6)
                         )
                         features_norm = (features - target_mean) / (target_std + 1e-6)
@@ -196,23 +243,29 @@ def main(cfg: DictConfig):
                         mask_expanded = mask.unsqueeze(-1).expand_as(features)
                         rl = F.mse_loss(recon * mask_expanded, features_norm * mask_expanded, reduction='sum')
                         rl = rl / (mask.sum() * features.size(-1))
-                        
-                        total_val_loss += loss.item()
-                        total_val_recon += rl.item()
+                        vl = loss - rl
+
+                        # Collect validation metrics
+                        val_metrics_accumulator["loss_total"].append(loss.item())
+                        val_metrics_accumulator["loss_recon"].append(rl.item())
+                        val_metrics_accumulator["loss_vq"].append(vl.item())
                         val_steps += 1
                     except Exception as e:
                         logger.error(f"Error during validation: {e}")
-            
+
             if val_steps > 0:
-                avg_val_loss = total_val_loss / val_steps
-                avg_val_recon = total_val_recon / val_steps
-                wandb.log({
-                    "val/loss_total": avg_val_loss,
-                    "val/loss_recon": avg_val_recon,
-                    "val/loss_vq": avg_val_loss - avg_val_recon
-                }, step=step)
-                logger.info(f"Epoch {epoch} | Val Loss: {avg_val_loss:.4f}")
+                # Average validation metrics
+                val_logs = {
+                    f"val/{k}": np.mean(v) for k, v in val_metrics_accumulator.items()
+                }
+                wandb.log(val_logs, step=step)
+                logger.info(f"Epoch {epoch} | Val Loss: {val_logs['val/loss_total']:.4f} | "
+                          f"Val Recon: {val_logs['val/loss_recon']:.4f}")
             rqvae.train()
+
+    # Final Summary
+    logger.info("Training completed. Generating final summary...")
+    monitor.print_summary()
 
     # Final Save
     final_path = os.path.join(os.getcwd(), "rqvae_final.pt")
