@@ -40,6 +40,7 @@ monitoring:
   enable_alerts: true
   summary_interval: 500  # Print summary every N steps
   alert_cooldown: 100    # Min steps between same alert type
+  stop_on_critical: false  # Set to true to stop training on critical alerts
 
 hydra:
   run:
