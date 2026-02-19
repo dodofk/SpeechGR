@@ -1,0 +1,52 @@
+# @package _global_
+
+defaults:
+  - rqvae  # Inherit from base rqvae config
+
+rqvae:
+  pooling_type: "sliding_window"  # Use sliding window pooling
+  window_size: 25      # ~0.5s windows at 50fps (WavLM layer 24)
+  window_stride: 12    # ~50% overlap
+  pooling_hidden_dim: 128
+  aggregate_for_retrieval: "mean"  # "mean", "first", or "all"
+
+  # Same as base config
+  latent_dim: 1024
+  codebook_size: 256
+  num_codebooks: 8
+  commitment_cost: 0.25
+  decay: 0.9
+  num_encoder_layers: 4
+  num_decoder_layers: 4
+
+data:
+  manifest_path: ???
+  val_manifest: null
+  max_length: 160000 # 10 seconds
+  num_workers: 4
+
+training:
+  batch_size: 32
+  lr: 1e-4
+  epochs: 50
+  save_steps: 1000
+
+logging:
+  project: "speechgr-rqvae"
+  name: "rqvae_sliding_window"
+  mode: "online"
+
+monitoring:
+  enabled: true
+  enable_codebook: true
+  enable_ema: true
+  enable_recon: true
+  enable_training: true
+  enable_alerts: true
+  summary_interval: 500
+  alert_cooldown: 100
+  stop_on_critical: false
+
+hydra:
+  run:
+    dir: outputs/rqvae_sw/${now:%Y-%m-%d}/${now:%H-%M-%S}

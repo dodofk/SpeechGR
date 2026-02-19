@@ -14,7 +14,7 @@ import numpy as np
 import wandb
 
 from speechgr.models.ssl_wrapper import SSLModelWrapper
-from speechgr.models.rqvae import DocumentRQVAE
+from speechgr.models.rqvae import DocumentRQVAE, SlidingWindowDocumentRQVAE
 from speechgr.utils import RQVAEMonitor
 
 logger = logging.getLogger(__name__)
@@ -79,18 +79,39 @@ def main(cfg: DictConfig):
         freeze=True
     ).to(device)
     
-    logger.info("Initializing Robust DocumentRQVAE...")
-    # Map Hydra config to DocumentRQVAE params
-    rqvae = DocumentRQVAE(
-        input_dim=ssl_model.feature_dim,
-        latent_dim=cfg.rqvae.latent_dim,
-        codebook_size=cfg.rqvae.codebook_size,
-        num_codebooks=cfg.rqvae.num_codebooks,
-        commitment_cost=cfg.rqvae.commitment_cost,
-        decay=getattr(cfg.rqvae, "decay", 0.99),
-        num_encoder_layers=getattr(cfg.rqvae, "num_encoder_layers", 4),
-        num_decoder_layers=getattr(cfg.rqvae, "num_decoder_layers", 4)
-    ).to(device)
+    logger.info("Initializing RQ-VAE Model...")
+
+    # Determine model type
+    pooling_type = getattr(cfg.rqvae, 'pooling_type', 'global')
+
+    if pooling_type == 'sliding_window':
+        logger.info("Using SlidingWindowDocumentRQVAE with window pooling")
+        rqvae = SlidingWindowDocumentRQVAE(
+            input_dim=ssl_model.feature_dim,
+            latent_dim=cfg.rqvae.latent_dim,
+            codebook_size=cfg.rqvae.codebook_size,
+            num_codebooks=cfg.rqvae.num_codebooks,
+            window_size=getattr(cfg.rqvae, "window_size", 25),
+            window_stride=getattr(cfg.rqvae, "window_stride", 12),
+            pooling_hidden_dim=getattr(cfg.rqvae, "pooling_hidden_dim", 128),
+            commitment_cost=cfg.rqvae.commitment_cost,
+            decay=getattr(cfg.rqvae, "decay", 0.9),
+            num_encoder_layers=getattr(cfg.rqvae, "num_encoder_layers", 4),
+            num_decoder_layers=getattr(cfg.rqvae, "num_decoder_layers", 4),
+            aggregate_for_retrieval=getattr(cfg.rqvae, "aggregate_for_retrieval", "mean")
+        ).to(device)
+    else:
+        logger.info("Using DocumentRQVAE with global pooling")
+        rqvae = DocumentRQVAE(
+            input_dim=ssl_model.feature_dim,
+            latent_dim=cfg.rqvae.latent_dim,
+            codebook_size=cfg.rqvae.codebook_size,
+            num_codebooks=cfg.rqvae.num_codebooks,
+            commitment_cost=cfg.rqvae.commitment_cost,
+            decay=getattr(cfg.rqvae, "decay", 0.9),
+            num_encoder_layers=getattr(cfg.rqvae, "num_encoder_layers", 4),
+            num_decoder_layers=getattr(cfg.rqvae, "num_decoder_layers", 4)
+        ).to(device)
 
     # Initialize RQ-VAE Monitor
     logger.info("Initializing RQ-VAE Monitor...")
