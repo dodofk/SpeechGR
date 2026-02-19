@@ -200,12 +200,15 @@ def main(cfg: DictConfig):
             if step % summary_interval == 0:
                 monitor.print_summary()
 
-            # Check if training should stop
-            if monitor.should_stop():
+            # Check if training should stop (only after warmup period)
+            WARMUP_STEPS = 500  # Don't stop on critical alerts during warmup
+            if step > WARMUP_STEPS and monitor.should_stop():
                 logger.error("Critical alert triggered! Stopping training.")
                 break
 
-            pbar.set_description(f"Epoch {epoch} | Loss: {total_loss.item():.4f} | "
+            # Progress bar with warmup indicator
+            warmup_indicator = "[WARMUP] " if step < WARMUP_STEPS else ""
+            pbar.set_description(f"Epoch {epoch} | {warmup_indicator}Loss: {total_loss.item():.4f} | "
                                f"Util: {monitor_logs.get('codebook/avg_utilization', 0):.1%} | "
                                f"SNR: {monitor_logs.get('recon/snr_db', 0):.1f}dB")
             
@@ -214,8 +217,8 @@ def main(cfg: DictConfig):
                 torch.save(rqvae.state_dict(), save_path)
                 logger.info(f"Saved checkpoint to {save_path}")
 
-            # Exit outer loop if training stopped
-            if monitor.should_stop():
+            # Exit outer loop if training stopped (only after warmup)
+            if step > WARMUP_STEPS and monitor.should_stop():
                 break
 
         # Evaluation Loop

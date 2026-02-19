@@ -469,68 +469,79 @@ class AlertManager:
     Automated alert system for detecting training issues.
     """
 
-    # Default alert rules: (condition_fn, severity, message_template)
+    # Default alert rules: (condition_fn, severity, message_template, min_step)
+    # min_step: minimum step before this alert can trigger (0 = no minimum)
     DEFAULT_RULES = {
         # Critical - Stop training
         "nan_loss": (
             lambda logs: np.isnan(logs.get("train/loss_total", 0)),
             "critical",
-            "NaN loss detected at step {step}!"
+            "NaN loss detected at step {step}!",
+            0  # Can trigger immediately
         ),
         "inf_loss": (
             lambda logs: np.isinf(logs.get("train/loss_total", 0)),
             "critical",
-            "Inf loss detected at step {step}!"
+            "Inf loss detected at step {step}!",
+            0
         ),
         "zero_gradients": (
             lambda logs: logs.get("grad_norm/global", 1.0) < 1e-8,
             "critical",
-            "Zero gradients detected at step {step}!"
+            "Zero gradients detected at step {step}!",
+            100  # Allow warmup period
         ),
         "codebook_collapse": (
             lambda logs: logs.get("codebook/avg_utilization", 1.0) < 0.1,
             "critical",
-            "Codebook collapsed! Avg utilization {value:.2%} at step {step}"
+            "Codebook collapsed! Avg utilization {value:.2%} at step {step}",
+            500  # Don't trigger until after 500 steps (EMA warmup + training)
         ),
 
         # Warning - Log and continue
         "low_utilization": (
             lambda logs: logs.get("codebook/avg_utilization", 1.0) < 0.5,
             "warning",
-            "Low codebook utilization: {value:.2%} at step {step}"
+            "Low codebook utilization: {value:.2%} at step {step}",
+            100  # Allow 100 steps for initialization
         ),
         "high_vq_ratio": (
             lambda logs: logs.get("loss_ratio/vq_to_recon", 0) > 10,
             "warning",
-            "VQ loss dominating: VQ/Recon = {value:.2f} at step {step}"
+            "VQ loss dominating: VQ/Recon = {value:.2f} at step {step}",
+            0
         ),
         "poor_reconstruction": (
             lambda logs: logs.get("recon/snr_db", 100) < 5,
             "warning",
-            "Poor reconstruction quality: SNR = {value:.2f} dB at step {step}"
+            "Poor reconstruction quality: SNR = {value:.2f} dB at step {step}",
+            50  # Allow some warmup
         ),
         "gradient_spike": (
             lambda logs: logs.get("grad_norm/global", 0) > 100,
             "warning",
-            "Gradient spike detected: norm = {value:.2f} at step {step}"
+            "Gradient spike detected: norm = {value:.2f} at step {step}",
+            0
         ),
         "low_perplexity": (
             lambda logs: logs.get("codebook/avg_perplexity", 256) < 50,
             "warning",
-            "Low codebook perplexity: {value:.1f} at step {step} (possible mode collapse)"
+            "Low codebook perplexity: {value:.1f} at step {step} (possible mode collapse)",
+            100
         ),
 
         # Info - Just log
         "ema_warmup_complete": (
             lambda logs: logs.get("ema/num_updates", 0) == 100,
             "info",
-            "EMA warmup complete at step {step}"
+            "EMA warmup complete at step {step}",
+            0
         ),
     }
 
     def __init__(
         self,
-        rules: Optional[Dict[str, Tuple[Callable, str, str]]] = None,
+        rules: Optional[Dict[str, Tuple[Callable, str, str, int]]] = None,
         cooldown_steps: int = 100
     ):
         self.rules = rules or self.DEFAULT_RULES
@@ -552,7 +563,11 @@ class AlertManager:
         """
         alerts = []
 
-        for rule_name, (check_fn, severity, message_template) in self.rules.items():
+        for rule_name, (check_fn, severity, message_template, min_step) in self.rules.items():
+            # Skip if before minimum step (warmup period)
+            if step < min_step:
+                continue
+
             # Check cooldown (don't spam same alert)
             if step - self.last_alert_step.get(rule_name, -self.cooldown_steps) < self.cooldown_steps:
                 continue
