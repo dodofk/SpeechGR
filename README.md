@@ -116,17 +116,45 @@ rocm-smi                 # GPU status
 ### 2. Create UV Environment with ROCm PyTorch
 
 ```bash
-# Use Python 3.10 (better ROCm support)
-uv venv --python 3.10
+# Use Python 3.12 to match this repo's `requires-python`
+uv venv --python 3.12
 source .venv/bin/activate
 
 # Install PyTorch with ROCm support (CRITICAL)
-uv pip install torch==2.1.1 torchvision torchaudio \
+# For ROCm 6.0, use a version that actually exists on the wheel index.
+uv pip install torch==2.4.1 torchvision==0.19.1 torchaudio==2.4.1 \
     --index-url https://download.pytorch.org/whl/rocm6.0
 
-# Install remaining dependencies
-uv pip install -e .
+# Install remaining project deps without replacing ROCm torch wheels
+uv sync --extra dev \
+  --inexact \
+  --no-install-package torch \
+  --no-install-package torchvision \
+  --no-install-package torchaudio \
+  --no-install-package triton \
+  --no-install-package nvidia-cublas-cu12 \
+  --no-install-package nvidia-cuda-cupti-cu12 \
+  --no-install-package nvidia-cuda-nvrtc-cu12 \
+  --no-install-package nvidia-cuda-runtime-cu12 \
+  --no-install-package nvidia-cudnn-cu12 \
+  --no-install-package nvidia-cufft-cu12 \
+  --no-install-package nvidia-curand-cu12 \
+  --no-install-package nvidia-cusolver-cu12 \
+  --no-install-package nvidia-cusparse-cu12 \
+  --no-install-package nvidia-cusparselt-cu12 \
+  --no-install-package nvidia-nccl-cu12 \
+  --no-install-package nvidia-nvjitlink-cu12 \
+  --no-install-package nvidia-nvtx-cu12
+
+# Install project package itself
+uv pip install -e . --no-deps
 ```
+
+Why this matters:
+- `torch==2.1.1` is not available on `rocm6.0` index, so resolution fails.
+- This project requires Python `3.12.*`, so using 3.10 creates compatibility warnings.
+- If you run plain `uv sync`, resolver may pull CUDA (`nvidia-*-cu12`) packages from PyPI, which are unnecessary on ROCm.
+- `--inexact` keeps your manually installed ROCm wheels instead of removing them during sync.
 
 ### 3. Required Environment Variable
 
@@ -151,12 +179,18 @@ Then use: `./run_rocm.sh python scripts/phase0_prep/train_rqvae.py ...`
 export HSA_OVERRIDE_GFX_VERSION=11.0.0
 uv run python -c "import torch; print(f'Device: {torch.cuda.get_device_name(0)}')"
 # Should output: AMD Radeon RX 7900 XTX
+
+uv run python -c "import torch; print(torch.__version__); print(torch.version.hip)"
+# Should print torch 2.4.1 and a non-empty HIP version
 ```
 
 ### Troubleshooting
 
 | Issue | Solution |
 |-------|----------|
+| `No solution found ... torch==2.1.1` | Use `torch==2.4.1 torchvision==0.19.1 torchaudio==2.4.1` for `rocm6.0` |
+| `requires-python ==3.12.*` warning | Recreate env with `uv venv --python 3.12` |
+| `uv sync` downloads `nvidia-*-cu12` / `triton` | Re-run `uv sync` with the `--no-install-package` list above |
 | `No GPU detected` | Ensure `HSA_OVERRIDE_GFX_VERSION=11.0.0` is set |
 | `HIP error` | `export ROCM_USE_FLASH_ATTN_V2_SCAN=0` |
 | Out of memory | Reduce `batch_size` in config (try 16 instead of 32) |
