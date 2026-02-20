@@ -7,7 +7,7 @@ model:
   model_path: "ckpts/audio-t5-pt-flant5-base-c500-l22/checkpoint-219000"
 
 data:
-  code_path: "/home/ricky/dodofk/dataset/slue_sqa_code_l22_c500"
+  code_path: ${oc.env:SLUE_SQA5_CODE_PATH,${hydra:runtime.cwd}/outputs/slue_wavtok/precomputed}
   discrete_code_num: 500
   train_atomic: false
 

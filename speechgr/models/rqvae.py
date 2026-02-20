@@ -557,7 +557,7 @@ class SlidingWindowDocumentRQVAE(nn.Module):
         """
         Returns document-level codes for retrieval.
 
-        If aggregate_for_retrieval="mean": returns mean of window codes -> [B, num_codebooks]
+        If aggregate_for_retrieval="mean": quantizes the mean window embedding -> [B, num_codebooks]
         If aggregate_for_retrieval="first": returns first window code -> [B, num_codebooks]
         If aggregate_for_retrieval="all": returns all window codes -> [B, num_windows, num_codebooks]
         """
@@ -568,12 +568,14 @@ class SlidingWindowDocumentRQVAE(nn.Module):
             z_seq = self.encoder_transformer(x_emb, src_key_padding_mask=key_padding_mask)
             z_seq = self.feature_norm(z_seq)
             z_windows = self.pooling(z_seq, mask)  # [B, num_windows, D]
-            _, _, codes = self.rvq(z_windows)  # [B, num_windows, num_codebooks]
+            z_q_windows, _, codes = self.rvq(z_windows)  # [B, num_windows, num_codebooks]
 
             if self.aggregate_for_retrieval == "mean":
-                # For mean aggregation, we average the quantized embeddings instead of codes
-                # This gives smoother representation for retrieval
-                return codes[:, 0]  # Use first window as representative code
+                # Average quantized window embeddings then quantize once more to
+                # recover a single discrete document code per codebook.
+                z_doc = z_q_windows.mean(dim=1, keepdim=True)  # [B, 1, D]
+                _, _, doc_codes = self.rvq(z_doc)
+                return doc_codes.squeeze(1)
             elif self.aggregate_for_retrieval == "first":
                 # Use first window -> [B, num_codebooks]
                 return codes[:, 0]

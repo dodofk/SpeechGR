@@ -40,7 +40,13 @@ from speechgr.utils_legacy import RestrictDecodeVocab
 logger = logging.getLogger(__name__)
 
 
-def make_compute_metrics(tokenizer, valid_ids):
+def make_compute_metrics(
+    tokenizer,
+    valid_ids,
+    *,
+    log_eval_artifacts: bool,
+    log_eval_raw_predictions: bool,
+):
     def compute_metrics(eval_preds):
         hit_at_1 = 0
         hit_at_10 = 0
@@ -67,35 +73,37 @@ def make_compute_metrics(tokenizer, valid_ids):
             "Hits@20": hit_at_20 / len(eval_preds.predictions),
         }
 
-        with open("eval_results.json", "w") as f:
-            json.dump(metrics, f, indent=4)
+        if log_eval_artifacts:
+            with open("eval_results.json", "w") as f:
+                json.dump(metrics, f, indent=4)
 
-        artifact = wandb.Artifact(
-            "eval_results", type="evaluation", description="Evaluation results"
-        )
-        artifact.add_file("eval_results.json")
-        wandb.log_artifact(artifact)
+            artifact = wandb.Artifact(
+                "eval_results", type="evaluation", description="Evaluation results"
+            )
+            artifact.add_file("eval_results.json")
+            wandb.log_artifact(artifact)
 
-        raw_data = {
-            "predictions": (
-                eval_preds.predictions.tolist()
-                if isinstance(eval_preds.predictions, np.ndarray)
-                else eval_preds.predictions
-            ),
-            "label_ids": (
-                eval_preds.label_ids.tolist()
-                if isinstance(eval_preds.label_ids, np.ndarray)
-                else eval_preds.label_ids
-            ),
-        }
-        with open("eval_raw.json", "w") as f:
-            json.dump(raw_data, f, indent=4)
+        if log_eval_raw_predictions:
+            raw_data = {
+                "predictions": (
+                    eval_preds.predictions.tolist()
+                    if isinstance(eval_preds.predictions, np.ndarray)
+                    else eval_preds.predictions
+                ),
+                "label_ids": (
+                    eval_preds.label_ids.tolist()
+                    if isinstance(eval_preds.label_ids, np.ndarray)
+                    else eval_preds.label_ids
+                ),
+            }
+            with open("eval_raw.json", "w") as f:
+                json.dump(raw_data, f, indent=4)
 
-        raw_artifact = wandb.Artifact(
-            "eval_raw", type="raw_data", description="Raw predictions and label ids"
-        )
-        raw_artifact.add_file("eval_raw.json")
-        wandb.log_artifact(raw_artifact)
+            raw_artifact = wandb.Artifact(
+                "eval_raw", type="raw_data", description="Raw predictions and label ids"
+            )
+            raw_artifact.add_file("eval_raw.json")
+            wandb.log_artifact(raw_artifact)
         wandb.log(metrics)
 
         return metrics
@@ -319,7 +327,12 @@ def run(cfg: DictConfig) -> None:
         train_dataset=train_dataset,
         eval_dataset=valid_dataset,
         data_collator=collator,
-        compute_metrics=make_compute_metrics(fast_tokenizer, train_dataset.valid_ids),
+        compute_metrics=make_compute_metrics(
+            fast_tokenizer,
+            train_dataset.valid_ids,
+            log_eval_artifacts=run_cfg.log_eval_artifacts,
+            log_eval_raw_predictions=run_cfg.log_eval_raw_predictions,
+        ),
         id_max_length=run_cfg.id_max_length,
         restrict_decode_vocab=restrict_decode_vocab,
     )

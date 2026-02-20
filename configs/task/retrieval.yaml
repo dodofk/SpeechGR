@@ -14,3 +14,5 @@ run:
   num_return_sequences: 10
   generation_max_length: 20
   run_notes: "fine-tune on flan-t5 with 500 cluster discrete units on layer 22"
+  log_eval_artifacts: false
+  log_eval_raw_predictions: false

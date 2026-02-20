@@ -50,7 +50,17 @@ class AudioManifestDataset(Dataset):
             return torch.tensor(wav, dtype=torch.float32), torch.tensor(actual_len, dtype=torch.long)
         except Exception as e:
             logger.error(f"Error loading {path}: {e}")
-            return torch.zeros(self.max_length, dtype=torch.float32), torch.tensor(0, dtype=torch.long)
+            return None
+
+
+def collate_valid_audio(batch):
+    """Drop invalid samples so unreadable audio does not pollute training."""
+    valid = [item for item in batch if item is not None]
+    if not valid:
+        return None
+
+    audio, lengths = zip(*valid)
+    return torch.stack(audio), torch.stack(lengths)
 
 def create_mask(lengths, max_len, device):
     """Create a binary mask: 1 for valid, 0 for padding."""
@@ -124,18 +134,31 @@ def main(cfg: DictConfig):
         enable_ema=mon_cfg.get('enable_ema', True),
         enable_recon=mon_cfg.get('enable_recon', True),
         enable_training=mon_cfg.get('enable_training', True),
-        enable_alerts=mon_cfg.get('enable_alerts', True)
+        enable_alerts=mon_cfg.get('enable_alerts', True),
+        alert_cooldown=mon_cfg.get('alert_cooldown', 100),
     )
 
     # 2. Setup Data
     num_workers = getattr(cfg.data, "num_workers", 4)
     dataset = AudioManifestDataset(cfg.data.manifest_path, max_length=cfg.data.max_length)
-    dataloader = DataLoader(dataset, batch_size=cfg.training.batch_size, shuffle=True, num_workers=num_workers)
+    dataloader = DataLoader(
+        dataset,
+        batch_size=cfg.training.batch_size,
+        shuffle=True,
+        num_workers=num_workers,
+        collate_fn=collate_valid_audio,
+    )
     
     val_dataloader = None
     if getattr(cfg.data, "val_manifest", None):
         val_dataset = AudioManifestDataset(cfg.data.val_manifest, max_length=cfg.data.max_length)
-        val_dataloader = DataLoader(val_dataset, batch_size=cfg.training.batch_size, shuffle=False, num_workers=num_workers)
+        val_dataloader = DataLoader(
+            val_dataset,
+            batch_size=cfg.training.batch_size,
+            shuffle=False,
+            num_workers=num_workers,
+            collate_fn=collate_valid_audio,
+        )
     
     # 3. Setup Optimizer & Scheduler
     optimizer = optim.AdamW(rqvae.parameters(), lr=cfg.training.lr, weight_decay=0.01)
@@ -157,7 +180,12 @@ def main(cfg: DictConfig):
     for epoch in range(cfg.training.epochs):
         rqvae.train()
         pbar = tqdm(dataloader)
-        for audio, lengths in pbar:
+        for batch in pbar:
+            if batch is None:
+                logger.warning("Skipping empty batch (all samples failed to load)")
+                continue
+
+            audio, lengths = batch
             audio = audio.to(device)
             lengths = lengths.to(device)
             
@@ -249,7 +277,12 @@ def main(cfg: DictConfig):
             val_metrics_accumulator = defaultdict(list)
             val_steps = 0
             with torch.no_grad():
-                for audio, lengths in val_dataloader:
+                for batch in val_dataloader:
+                    if batch is None:
+                        logger.warning("Skipping empty validation batch (all samples failed to load)")
+                        continue
+
+                    audio, lengths = batch
                     audio = audio.to(device)
                     lengths = lengths.to(device)
                     try:

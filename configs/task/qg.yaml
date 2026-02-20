@@ -11,12 +11,12 @@ model:
   model_path: null
 
 data:
-  dataset_path: "/home/ricky/dodofk/dataset/slue_sqa5/"
-  code_path: "/home/ricky/dodofk/dataset/slue_sqa_code_c512"
+  dataset_path: ${oc.env:SLUE_SQA5_DATASET_PATH,${hydra:runtime.cwd}/outputs/slue_wavtok/csv}
+  code_path: ${oc.env:SLUE_SQA5_CODE_PATH,${hydra:runtime.cwd}/outputs/slue_wavtok/precomputed}
   split: "train"
   max_length: 512
   discrete_code_num: 512
-  lookup_file_name: "/home/ricky/dodofk/dataset/slue_sqa5/flan-t5-base-unused_tokens.txt"
+  lookup_file_name: ${oc.env:SLUE_SQA5_TOKEN_LOOKUP_PATH,${hydra:runtime.cwd}/outputs/slue_wavtok/flan-t5-base-unused_tokens.txt}
 
 wandb:
   project: "Audio-QG"

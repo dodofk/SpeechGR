@@ -1,85 +1,63 @@
-import numpy as np
 import torch
 from transformers import WhisperProcessor, WhisperForConditionalGeneration
-from datasets import load_dataset, load_metric
 import logging
-import json
+from typing import List, Dict
+import numpy as np
+from tqdm import tqdm
 
-logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Load Whisper model and processor from Hugging Face
-
-model_name_or_path = "openai/whisper-large-v3"
-
-processor = WhisperProcessor.from_pretrained(model_name_or_path)
-model = WhisperForConditionalGeneration.from_pretrained(model_name_or_path)
-model.config.forced_decoder_ids = processor.get_decoder_prompt_ids(language="en", task="transcribe")
-
-ds = load_dataset("asapp/slue-phase-2", "sqa5")
-
-splits = ["train", "validation", "test", "verified_test"]
-
-corpus_set = set()
-corpus_id, corpus_gt, corpus_asr = [], []
-
-for split in splits:
-    print(f"Processing {split} split corpus part")
-    for data in ds[split]:
-        if data["document_id"] in corpus_set:
-            continue
-        corpus_set.add(data["document_id"])
+class WhisperASR:
+    def __init__(self, model_name: str = "openai/whisper-large-v3", device: str = None):
+        if device is None:
+            self.device = "cuda" if torch.cuda.is_available() else "cpu"
+        else:
+            self.device = device
+            
+        logger.info(f"Loading Whisper model: {model_name} on {self.device}")
+        self.processor = WhisperProcessor.from_pretrained(model_name)
+        self.model = WhisperForConditionalGeneration.from_pretrained(model_name).to(self.device)
         
-        wav, sr = data["document_audio"]["array"], data["document_audio"]["sampling_rate"]
+        # Default transcription config
+        self.forced_decoder_ids = self.processor.get_decoder_prompt_ids(language="en", task="transcribe")
+
+    def transcribe_batch(self, audios: List[np.ndarray], sampling_rate: int = 16000) -> List[str]:
+        """
+        Transcribe a batch of audio arrays.
+        """
+        inputs = self.processor(
+            audios, 
+            sampling_rate=sampling_rate, 
+            return_tensors="pt", 
+            padding=True
+        ).to(self.device)
         
-        inputs = processor(
-            audio=wav,
-            sampling_rate=sr,
-            return_tensors="pt"
-        )
-        
-        outputs = model.generate(**inputs, max_new_tokens=448)
-        
-        corpus_asr.append(processor.decode(outputs[0], skip_special_tokens=True))
-        corpus_gt.append(data["normalized_document_text"])
-        corpus_id.append(data["document_id"])
-        
-# Calculate wer for corpus
-wer_metric = load_metric("wer")
-wer = wer_metric.compute(predictions=corpus_asr, references=corpus_gt)
+        with torch.no_grad():
+            generated_ids = self.model.generate(
+                inputs.input_features, 
+                forced_decoder_ids=self.forced_decoder_ids,
+                max_new_tokens=448
+            )
+            
+        transcriptions = self.processor.batch_decode(generated_ids, skip_special_tokens=True)
+        return transcriptions
 
-
-# test set
-test_ds = ds["test"]
-query_id, query_gt, query_asr = [], []
-
-for data in test_ds:
-    query_id.append(data["question_id"])
-    query_gt.append(data["raw_question_text"])
-    query_asr.append(data["asr_transcription"])
-    
-# Calculate wer for query
-wer_metric = load_metric("wer")
-wer = wer_metric.compute(predictions=query_asr, references=query_gt)
-
-print(f"Query WER: {wer}")
-
-# save the results
-with open(f"asr_results_{model_name_or_path}.json", "w") as f:
-    json.dump(
-        {
-            "corpus_id": corpus_id,
-            "corpus_gt": corpus_gt,
-            "corpus_asr": corpus_asr,
-            "query_id": query_id,
-            "query_gt": query_gt,
-            "query_asr": query_asr
-        }, f)
-
-print(f"Corpus WER: {wer}")
-
-
-
-
-
-# print(len(corpus))
+    def transcribe_dataset(self, dataset, audio_column: str = "audio", text_column: str = "text", batch_size: int = 4) -> Dict[str, str]:
+        """
+        Transcribe all items in a dataset. Expects dataset items to have 'document_id' or similar if used for corpus.
+        """
+        results = {}
+        for i in tqdm(range(0, len(dataset), batch_size), desc="Transcribing"):
+            batch = dataset[i : i + batch_size]
+            audios = [x["array"] for x in batch[audio_column]]
+            sr = batch[audio_column][0]["sampling_rate"]
+            
+            transcripts = self.transcribe_batch(audios, sampling_rate=sr)
+            
+            # Use IDs if available, else index
+            for j, transcript in enumerate(transcripts):
+                item = batch[j] if isinstance(batch, list) else {k: v[j] for k, v in batch.items()}
+                idx = item.get("document_id", item.get("question_id", str(i + j)))
+                results[idx] = transcript
+                
+        return results

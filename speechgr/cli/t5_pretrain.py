@@ -173,10 +173,10 @@ class DiscreteCodeDataset(Dataset):
         self,
         max_length: int = 512,
         chunk_offset: int = 20,
-        code_dir: str = "/home/ricky/dodofk/dataset/ll6k_code_l22_c500",
+        code_dir: str = "outputs/slue_wavtok/precomputed",
         discrete_code_num: int = 500,
         split: str = "train",
-        token_file: str = "/home/ricky/dodofk/dataset/slue_sqa5/flan-t5-base-unused_tokens.txt",
+        token_file: str = "outputs/slue_wavtok/flan-t5-base-unused_tokens.txt",
     ):
         self.discrete_code_num: int = discrete_code_num
         self.code_dir: str = code_dir
@@ -282,7 +282,7 @@ class DataTrainingArguments:
         default=20, metadata={"help": "Chunk offset for the code dataset"},
     )
     code_dir: str = field(
-        default="/home/ricky/dodofk/dataset/ll6k_code_l22_c500",
+        default="outputs/slue_wavtok/precomputed",
         metadata={"help": "Directory to the code dataset"},
     )
     discrete_code_num: int = field(

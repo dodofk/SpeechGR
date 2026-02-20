@@ -683,7 +683,8 @@ class RQVAEMonitor:
         enable_ema: bool = True,
         enable_recon: bool = True,
         enable_training: bool = True,
-        enable_alerts: bool = True
+        enable_alerts: bool = True,
+        alert_cooldown: int = 100,
     ):
         self.model = model
         self.num_embeddings = num_embeddings
@@ -692,11 +693,27 @@ class RQVAEMonitor:
         # Initialize sub-monitors
         self.codebook_monitor = CodebookMonitor(num_embeddings, num_layers) if enable_codebook else None
         self.ema_monitor = None
-        if enable_ema and hasattr(model, 'rqvae'):
-            self.ema_monitor = EMAMonitor(model.rvq.layers)
+        if enable_ema:
+            rvq_layers = None
+            if hasattr(model, "rvq") and hasattr(model.rvq, "layers"):
+                rvq_layers = model.rvq.layers
+            elif hasattr(model, "rqvae") and hasattr(model.rqvae, "rvq") and hasattr(model.rqvae.rvq, "layers"):
+                rvq_layers = model.rqvae.rvq.layers
+            elif hasattr(model, "rqvae") and hasattr(model.rqvae, "layers"):
+                rvq_layers = model.rqvae.layers
+
+            if rvq_layers is not None:
+                self.ema_monitor = EMAMonitor(rvq_layers)
+            else:
+                logger.warning(
+                    "EMA monitoring requested but no RVQ layers found on model %s",
+                    type(model).__name__,
+                )
         self.recon_monitor = ReconstructionMonitor() if enable_recon else None
         self.training_monitor = TrainingMonitor(model) if enable_training else None
-        self.alert_manager = AlertManager() if enable_alerts else None
+        self.alert_manager = (
+            AlertManager(cooldown_steps=alert_cooldown) if enable_alerts else None
+        )
 
         self.step_count = 0
 

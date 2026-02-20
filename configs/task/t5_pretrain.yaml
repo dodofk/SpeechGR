@@ -10,7 +10,7 @@ model:
   sentinel_start_id: 32000
 
 data:
-  code_dir: "/home/ricky/dodofk/dataset/slue_sqa_code_c512"
+  code_dir: ${oc.env:SLUE_SQA5_CODE_PATH,${hydra:runtime.cwd}/outputs/slue_wavtok/precomputed}
   seq_length: 512
   chunk_offset: 50
   discrete_code_num: 512

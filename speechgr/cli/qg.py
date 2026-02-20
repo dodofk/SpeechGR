@@ -74,13 +74,13 @@ class QueryGenDataset(Dataset):
         self,
         split: str,
         max_length: int = 512,
-        dataset_path: str = "/home/ricky/dodofk/dataset/slue_sqa5/",
-        code_path: str = "/home/ricky/dodofk/dataset/slue_sqa_code_c512",
+        dataset_path: str = "outputs/slue_wavtok/csv",
+        code_path: str = "outputs/slue_wavtok/precomputed",
         discrete_code_num: int = 512,
         special_token: int = 32000,
         lookup_file_name: Optional[
             str
-        ] = "/home/ricky/dodofk/dataset/slue_sqa5/flan-t5-base-unused_tokens.txt",
+        ] = "outputs/slue_wavtok/flan-t5-base-unused_tokens.txt",
         offset: int = 30,
         label_max_length: int = 300, # as some of the query is extreme long, we need to truncate the label
     ):
@@ -282,11 +282,11 @@ class ModelArguments:
 @dataclass
 class DataTrainingArguments:
     dataset_path: str = field(
-        default="/home/ricky/dodofk/dataset/slue_sqa5/",
+        default="outputs/slue_wavtok/csv",
         metadata={"help": "Base path to SLUE-SQA5 CSV files"},
     )
     code_path: str = field(
-        default="/home/ricky/dodofk/dataset/slue_sqa_code_c512",
+        default="outputs/slue_wavtok/precomputed",
         metadata={"help": "Path to precomputed .code files"},
     )
     split: str = field(
@@ -302,7 +302,7 @@ class DataTrainingArguments:
         metadata={"help": "Size of discrete code lookup"},
     )
     lookup_file_name: Optional[str] = field(
-        default="/home/ricky/dodofk/dataset/slue_sqa5/flan-t5-base-unused_tokens.txt",
+        default="outputs/slue_wavtok/flan-t5-base-unused_tokens.txt",
         metadata={"help": "Optional .npy lookup file"},
     )
 

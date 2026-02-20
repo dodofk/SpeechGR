@@ -228,7 +228,9 @@ class TestAlertManager:
         manager = AlertManager()
         logs = {"train/loss_total": 1.0, "codebook/avg_utilization": 0.3}
 
-        alerts = manager.check(logs, step=0)
+        # Rule has a warmup gate at step 100.
+        assert manager.check(logs, step=99) == []
+        alerts = manager.check(logs, step=100)
         assert len(alerts) == 1
         assert alerts[0].severity == "warning"
         assert alerts[0].rule == "low_utilization"
@@ -238,15 +240,15 @@ class TestAlertManager:
 
         # First alert
         logs = {"train/loss_total": 1.0, "codebook/avg_utilization": 0.3}
-        alerts1 = manager.check(logs, step=0)
+        alerts1 = manager.check(logs, step=100)
         assert len(alerts1) == 1
 
         # Same alert within cooldown - should be suppressed
-        alerts2 = manager.check(logs, step=5)
+        alerts2 = manager.check(logs, step=105)
         assert len(alerts2) == 0
 
         # Same alert after cooldown - should trigger again
-        alerts3 = manager.check(logs, step=15)
+        alerts3 = manager.check(logs, step=115)
         assert len(alerts3) == 1
 
     def test_should_stop_training(self):
@@ -263,6 +265,30 @@ class TestAlertManager:
 
 
 class TestRQVAEMonitor:
+    def test_ema_monitor_initializes_from_rvq(self):
+        class DummyModel(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.rvq = ResidualVectorQuantizerEMA(
+                    num_embeddings=8,
+                    embedding_dim=4,
+                    num_layers=2,
+                )
+
+        model = DummyModel()
+        monitor = RQVAEMonitor(
+            model=model,
+            num_embeddings=8,
+            num_layers=2,
+            enable_ema=True,
+            enable_codebook=False,
+            enable_recon=False,
+            enable_training=False,
+            enable_alerts=False,
+        )
+
+        assert monitor.ema_monitor is not None
+
     def test_initialization(self):
         # Create simple model
         model = torch.nn.Linear(128, 128)

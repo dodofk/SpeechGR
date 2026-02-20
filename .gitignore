@@ -1,4 +1,6 @@
 wandb/
+.code/
+.DS_Store
 __pycache__/
 *.pyc
 *.pyo
@@ -17,9 +19,11 @@ __pycache__/
 
 ckpts
 *.pt
-models
+/models/
 speech-content-encoder/hubert_22
 speech-content-encoder/hubert_22_km_2000
+outputs/
+speechgr.egg-info/
 
 eval_raw.json
 eval_results.json

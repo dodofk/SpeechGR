@@ -102,6 +102,8 @@ class RunConfig:
     num_return_sequences: int = 10
     generation_max_length: Optional[int] = None
     run_notes: str = ""
+    log_eval_artifacts: bool = False
+    log_eval_raw_predictions: bool = False
 
 
 @dataclass

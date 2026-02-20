@@ -1,7 +1,7 @@
 modality: text
-dataset_path: "/home/ricky/dodofk/dataset/slue_sqa5/"
-pq_filename: "slue_sqa5_pq10_llama32_3b_clean.csv"
-corpus_filename: "slue_sqa5_corpus.csv"
+dataset_path: ${oc.env:SLUE_SQA5_DATASET_PATH,${hydra:runtime.cwd}/outputs/slue_wavtok/csv}
+pq_filename: ${oc.env:SLUE_SQA5_TEXT_QUERY_FILE,train.csv}
+corpus_filename: ${oc.env:SLUE_SQA5_TEXT_CORPUS_FILE,corpus.csv}
 text_tokenizer_name: "google/flan-t5-base"
 query_text_field:
   - "post_query"
