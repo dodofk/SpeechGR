@@ -220,6 +220,63 @@ uv run python scripts/phase0_prep/train_rqvae.py \
     data.val_manifest=data/val_manifest.txt
 ```
 
+### 4. Recommended RQ-VAE Experiment Plan (S2GSR-Unity)
+If current retrieval quality is unstable, use the following staged plan before spending budget on full phase-1 Unity training.
+
+#### Step A: Lock a Reproducible Baseline
+1. Train with the same config/seed recipe 2-3 times:
+```bash
+uv run python scripts/phase0_prep/train_rqvae.py \
+    --config-name training/rqvae_sliding_window \
+    data.manifest_path=data/train_manifest.txt \
+    data.val_manifest=data/val_manifest.txt \
+    training.epochs=50
+```
+2. Track and archive at least:
+- `codebook/avg_utilization`
+- `codebook/avg_perplexity`
+- `recon/snr_db`
+- `train/loss_total`
+3. Keep this as the control run (`B0`).
+
+#### Step B: Aggregation Ablation First (Cheap, High Impact)
+Run retrieval-code ablations before architecture-heavy changes.
+
+Current built-in options in `SlidingWindowDocumentRQVAE.encode()`:
+- `aggregate_for_retrieval=mean`
+- `aggregate_for_retrieval=first`
+- `aggregate_for_retrieval=all`
+
+Suggested order:
+1. `B0`: `mean` (control)
+2. `B1`: `first`
+3. `B2`: `all` (for multi-vector experiments)
+
+Keep all other hyperparameters fixed while comparing these modes.
+
+#### Step C: Add Retrieval-Aligned Objective (Optional but Recommended)
+If reconstruction looks good but retrieval is weak, add a small retrieval-aligned auxiliary loss in phase-0 RQ-VAE training (for example, contrastive regularization on document representations).
+
+Guideline:
+- Start with low weight (e.g., `0.05` to `0.1`)
+- Ramp up after warmup
+- Ensure reconstruction metrics do not collapse
+
+#### Step D: Promotion Gates (Fail Fast)
+Only promote a phase-0 run to phase-1 Unity when all gates pass:
+- `codebook/avg_utilization >= 0.35`
+- `codebook/avg_perplexity` remains stable and non-collapsed
+- `recon/snr_db >= 10` (or your team baseline)
+- Retrieval proxy improves over `B0` (e.g., `Recall@10` improvement)
+
+If a run fails these gates, stop early and adjust aggregation/loss setup before full Unity training.
+
+#### Step E: Budget Rule for Phase-1 Unity
+Do **not** run full `scripts/phase1_train/train_unity.py` on every phase-0 variant.
+Only train phase-1 for the top 1-2 phase-0 candidates that pass Step D.
+
+This saves substantial compute and avoids tuning phase-1 on weak document codes.
+
 ### Using RQ-VAE in Experiments
 To use the trained RQ-VAE as an encoder in SpeechGR experiments, configure the `rqvae` encoder in your experiment config:
 
