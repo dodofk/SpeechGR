@@ -40,6 +40,29 @@ class TestCodebookMonitor:
             assert f"codebook/layer_{i}_utilization" in logs
             assert f"codebook/layer_{i}_perplexity" in logs
 
+    def test_update_sliding_window_codes(self):
+        monitor = CodebookMonitor(num_embeddings=128, num_layers=4)
+
+        # Simulate sliding-window codes: [B, W, num_layers]
+        codes = torch.randint(0, 128, (8, 12, 4))
+        logs = monitor.update(codes)
+
+        assert "codebook/avg_utilization" in logs
+        assert "codebook/layer_0_dead_code_ratio" in logs
+        assert "codebook/layer_0_low_count_ratio" in logs
+
+    def test_dead_ratio_not_batch_count_based(self):
+        monitor = CodebookMonitor(num_embeddings=16, num_layers=2)
+
+        # Use exactly half of the codebook repeatedly.
+        used_codes = torch.tensor([0, 1, 2, 3, 4, 5, 6, 7], dtype=torch.long)
+        layer_codes = used_codes.repeat(4)
+        codes = torch.stack([layer_codes, layer_codes], dim=1)
+        logs = monitor.update(codes)
+
+        # About half the codes are unused, not near 100% "dead".
+        assert logs["codebook/layer_0_dead_code_ratio"] <= 0.6
+
     def test_utilization_range(self):
         monitor = CodebookMonitor(num_embeddings=256, num_layers=8)
 
@@ -262,6 +285,26 @@ class TestAlertManager:
         manager.check(logs, step=0)
 
         assert manager.should_stop_training()
+
+    def test_low_perplexity_threshold_scales_with_codebook_size(self):
+        manager = AlertManager(num_embeddings=128, low_perplexity_ratio=0.2)
+
+        # Threshold is 25.6; 30 should not trigger.
+        logs_ok = {"train/loss_total": 1.0, "codebook/avg_perplexity": 30.0}
+        assert manager.check(logs_ok, step=100) == []
+
+        logs_bad = {"train/loss_total": 1.0, "codebook/avg_perplexity": 20.0}
+        alerts = manager.check(logs_bad, step=200)
+        assert any(a.rule == "low_perplexity" for a in alerts)
+
+    def test_codebook_collapse_message_reports_actual_utilization(self):
+        manager = AlertManager(codebook_collapse_threshold=0.1)
+        logs = {"train/loss_total": 1.0, "codebook/avg_utilization": 0.05}
+
+        alerts = manager.check(logs, step=500)
+        collapse = [a for a in alerts if a.rule == "codebook_collapse"]
+        assert len(collapse) == 1
+        assert "5.00%" in collapse[0].message
 
 
 class TestRQVAEMonitor:

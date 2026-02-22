@@ -48,12 +48,36 @@ class CodebookMonitor:
         self.history = defaultdict(lambda: defaultdict(list))
         self._window_size = 100  # For trend analysis
 
+    def _get_layer_indices(self, all_indices: torch.Tensor, layer_idx: int) -> torch.Tensor:
+        """Return indices for a specific codebook layer across all batch dimensions."""
+
+        if all_indices.ndim < 2:
+            raise ValueError(
+                f"Expected code indices with at least 2 dims, got {tuple(all_indices.shape)}"
+            )
+
+        # Common layouts:
+        # - [B, L]
+        # - [B, W, L] (sliding-window codes)
+        if all_indices.shape[-1] == self.num_layers:
+            return all_indices[..., layer_idx].reshape(-1)
+
+        # Backward compatibility for [B, L] where L might be second dim.
+        if all_indices.ndim == 2 and all_indices.shape[1] == self.num_layers:
+            return all_indices[:, layer_idx].reshape(-1)
+
+        raise ValueError(
+            "Unexpected code tensor layout for CodebookMonitor: "
+            f"shape={tuple(all_indices.shape)}, num_layers={self.num_layers}"
+        )
+
     def update(self, all_indices: torch.Tensor) -> Dict[str, float]:
         """
         Update monitor with new batch of codes.
 
         Args:
-            all_indices: [B, num_layers] tensor of code indices per layer
+            all_indices: code indices with shape [B, num_layers] or
+                [B, num_windows, num_layers]
 
         Returns:
             Dictionary of metrics for this step
@@ -61,7 +85,7 @@ class CodebookMonitor:
         metrics = {}
 
         for layer_idx in range(self.num_layers):
-            layer_indices = all_indices[:, layer_idx].flatten()
+            layer_indices = self._get_layer_indices(all_indices, layer_idx).to(torch.long)
 
             # Usage counts per code
             usage_counts = torch.bincount(
@@ -83,9 +107,14 @@ class CodebookMonitor:
             else:
                 perplexity = 1.0  # All mass on single code
 
-            # 3. Dead codes (codes used < 5 times in this batch)
-            dead_codes = (usage_counts < 5).sum().item()
+            # 3. Dead/inactive code signals
+            # "Dead" here means no usage in current batch/window set.
+            dead_codes = (usage_counts == 0).sum().item()
             dead_code_ratio = dead_codes / self.num_embeddings
+
+            # Keep a low-count signal for debugging imbalance without over-penalizing.
+            low_count_codes = (usage_counts < 5).sum().item()
+            low_count_ratio = low_count_codes / self.num_embeddings
 
             # 4. Usage concentration (Gini coefficient - measure of inequality)
             sorted_counts = torch.sort(usage_counts, descending=True)[0]
@@ -98,6 +127,7 @@ class CodebookMonitor:
             self.history[layer_key]["utilization"].append(utilization)
             self.history[layer_key]["perplexity"].append(perplexity)
             self.history[layer_key]["dead_code_ratio"].append(dead_code_ratio)
+            self.history[layer_key]["low_count_ratio"].append(low_count_ratio)
             self.history[layer_key]["gini"].append(gini)
             self.history[layer_key]["active_codes"].append(active_codes)
 
@@ -110,6 +140,7 @@ class CodebookMonitor:
             metrics[f"codebook/{layer_key}_utilization"] = utilization
             metrics[f"codebook/{layer_key}_perplexity"] = perplexity
             metrics[f"codebook/{layer_key}_dead_code_ratio"] = dead_code_ratio
+            metrics[f"codebook/{layer_key}_low_count_ratio"] = low_count_ratio
             metrics[f"codebook/{layer_key}_gini"] = gini
             metrics[f"codebook/{layer_key}_active_codes"] = active_codes
 
@@ -262,6 +293,31 @@ class ReconstructionMonitor:
     - Temporal consistency
     """
 
+    def __init__(self, normalize_like_training: bool = False):
+        # Match target normalization used in RQ-VAE training loss so SNR/MSE are comparable.
+        self.normalize_like_training = normalize_like_training
+
+    @staticmethod
+    def _normalize_target_like_training(
+        original: torch.Tensor,
+        mask: Optional[torch.Tensor] = None,
+    ) -> torch.Tensor:
+        if mask is not None:
+            mask_expanded = mask.unsqueeze(-1).float()
+            denom = mask.sum(dim=1, keepdim=True).unsqueeze(-1) + 1e-6
+            target_mean = (original * mask_expanded).sum(dim=1, keepdim=True) / denom
+            target_std = torch.sqrt(
+                ((original - target_mean) ** 2 * mask_expanded).sum(dim=1, keepdim=True)
+                / (denom * original.size(-1) + 1e-6)
+            )
+        else:
+            target_mean = original.mean(dim=1, keepdim=True)
+            target_std = torch.sqrt(
+                ((original - target_mean) ** 2).mean(dim=1, keepdim=True) + 1e-6
+            )
+
+        return (original - target_mean) / (target_std + 1e-6)
+
     def compute_metrics(
         self,
         original: torch.Tensor,
@@ -281,6 +337,12 @@ class ReconstructionMonitor:
         """
         metrics = {}
 
+        target = (
+            self._normalize_target_like_training(original, mask)
+            if self.normalize_like_training
+            else original
+        )
+
         if mask is not None:
             mask_expanded = mask.unsqueeze(-1).float()
             # Normalize by actual valid elements
@@ -292,13 +354,13 @@ class ReconstructionMonitor:
             valid = False
 
         # 1. MSE (more precise than model's version)
-        diff = (reconstructed - original) * mask_expanded
+        diff = (reconstructed - target) * mask_expanded
         mse = (diff ** 2).sum() / (normalizer + 1e-10)
         metrics["recon/mse"] = mse.item()
         metrics["recon/rmse"] = np.sqrt(mse.item())
 
         # 2. SNR calculation (in dB)
-        signal_power = ((original * mask_expanded) ** 2).sum() / (normalizer + 1e-10)
+        signal_power = ((target * mask_expanded) ** 2).sum() / (normalizer + 1e-10)
         noise_power = mse
         snr_linear = signal_power / (noise_power + 1e-10)
         snr_db = 10 * torch.log10(snr_linear + 1e-10)
@@ -306,8 +368,8 @@ class ReconstructionMonitor:
         metrics["recon/snr_linear"] = snr_linear.item()
 
         # 3. Feature correlation (per-frame cosine similarity)
-        orig_flat = original.reshape(-1, original.size(-1))
-        recon_flat = reconstructed.reshape(-1, original.size(-1))
+        orig_flat = target.reshape(-1, target.size(-1))
+        recon_flat = reconstructed.reshape(-1, target.size(-1))
 
         cos_sim = F.cosine_similarity(orig_flat, recon_flat, dim=-1)
 
@@ -335,7 +397,7 @@ class ReconstructionMonitor:
         # 6. Temporal consistency (for sequential data)
         if original.size(1) > 1:
             # Compute frame-to-frame differences
-            orig_diff = original[:, 1:] - original[:, :-1]
+            orig_diff = target[:, 1:] - target[:, :-1]
             recon_diff = reconstructed[:, 1:] - reconstructed[:, :-1]
 
             if valid:
@@ -347,8 +409,8 @@ class ReconstructionMonitor:
                 recon_diff_masked = recon_diff * mask_diff_expanded
 
                 # Cosine similarity of differences
-                orig_diff_flat = orig_diff_masked.reshape(-1, original.size(-1))
-                recon_diff_flat = recon_diff_masked.reshape(-1, original.size(-1))
+                orig_diff_flat = orig_diff_masked.reshape(-1, target.size(-1))
+                recon_diff_flat = recon_diff_masked.reshape(-1, target.size(-1))
                 mask_diff_flat = mask_diff.flatten()
 
                 diff_cos_sim = F.cosine_similarity(
@@ -359,8 +421,8 @@ class ReconstructionMonitor:
                 diff_cos_sim_masked = diff_cos_sim * mask_diff_flat
                 temp_consistency = diff_cos_sim_masked.sum() / (mask_diff_flat.sum() + 1e-10)
             else:
-                orig_diff_flat = orig_diff.reshape(-1, original.size(-1))
-                recon_diff_flat = recon_diff.reshape(-1, original.size(-1))
+                orig_diff_flat = orig_diff.reshape(-1, target.size(-1))
+                recon_diff_flat = recon_diff.reshape(-1, target.size(-1))
                 temp_consistency = F.cosine_similarity(
                     orig_diff_flat + 1e-8,
                     recon_diff_flat + 1e-8,
@@ -370,7 +432,7 @@ class ReconstructionMonitor:
             metrics["recon/temporal_consistency"] = temp_consistency.item()
 
         # 7. Relative error (normalized by signal magnitude)
-        signal_magnitude = torch.norm(original * mask_expanded, dim=-1).mean()
+        signal_magnitude = torch.norm(target * mask_expanded, dim=-1).mean()
         relative_error = torch.norm(diff, dim=-1).mean() / (signal_magnitude + 1e-10)
         metrics["recon/relative_error"] = relative_error.item()
 
@@ -469,83 +531,97 @@ class AlertManager:
     Automated alert system for detecting training issues.
     """
 
-    # Default alert rules: (condition_fn, severity, message_template, min_step)
-    # min_step: minimum step before this alert can trigger (0 = no minimum)
-    DEFAULT_RULES = {
-        # Critical - Stop training
-        "nan_loss": (
-            lambda logs: np.isnan(logs.get("train/loss_total", 0)),
-            "critical",
-            "NaN loss detected at step {step}!",
-            0  # Can trigger immediately
-        ),
-        "inf_loss": (
-            lambda logs: np.isinf(logs.get("train/loss_total", 0)),
-            "critical",
-            "Inf loss detected at step {step}!",
-            0
-        ),
-        "zero_gradients": (
-            lambda logs: logs.get("grad_norm/global", 1.0) < 1e-8,
-            "critical",
-            "Zero gradients detected at step {step}!",
-            100  # Allow warmup period
-        ),
-        "codebook_collapse": (
-            lambda logs: logs.get("codebook/avg_utilization", 1.0) < 0.1,
-            "critical",
-            "Codebook collapsed! Avg utilization {value:.2%} at step {step}",
-            500  # Don't trigger until after 500 steps (EMA warmup + training)
-        ),
-
-        # Warning - Log and continue
-        "low_utilization": (
-            lambda logs: logs.get("codebook/avg_utilization", 1.0) < 0.5,
-            "warning",
-            "Low codebook utilization: {value:.2%} at step {step}",
-            100  # Allow 100 steps for initialization
-        ),
-        "high_vq_ratio": (
-            lambda logs: logs.get("loss_ratio/vq_to_recon", 0) > 10,
-            "warning",
-            "VQ loss dominating: VQ/Recon = {value:.2f} at step {step}",
-            0
-        ),
-        "poor_reconstruction": (
-            lambda logs: logs.get("recon/snr_db", 100) < 5,
-            "warning",
-            "Poor reconstruction quality: SNR = {value:.2f} dB at step {step}",
-            50  # Allow some warmup
-        ),
-        "gradient_spike": (
-            lambda logs: logs.get("grad_norm/global", 0) > 100,
-            "warning",
-            "Gradient spike detected: norm = {value:.2f} at step {step}",
-            0
-        ),
-        "low_perplexity": (
-            lambda logs: logs.get("codebook/avg_perplexity", 256) < 50,
-            "warning",
-            "Low codebook perplexity: {value:.1f} at step {step} (possible mode collapse)",
-            100
-        ),
-
-        # Info - Just log
-        "ema_warmup_complete": (
-            lambda logs: logs.get("ema/num_updates", 0) == 100,
-            "info",
-            "EMA warmup complete at step {step}",
-            0
-        ),
-    }
-
     def __init__(
         self,
         rules: Optional[Dict[str, Tuple[Callable, str, str, int]]] = None,
-        cooldown_steps: int = 100
+        cooldown_steps: int = 100,
+        num_embeddings: int = 256,
+        codebook_collapse_threshold: float = 0.1,
+        low_utilization_threshold: float = 0.5,
+        low_perplexity_ratio: float = 0.2,
+        poor_reconstruction_snr_db: float = 5.0,
     ):
-        self.rules = rules or self.DEFAULT_RULES
         self.cooldown_steps = cooldown_steps
+        self.num_embeddings = num_embeddings
+        self.codebook_collapse_threshold = codebook_collapse_threshold
+        self.low_utilization_threshold = low_utilization_threshold
+        self.low_perplexity_threshold = max(10.0, low_perplexity_ratio * num_embeddings)
+        self.poor_reconstruction_snr_db = poor_reconstruction_snr_db
+
+        if rules is None:
+            # Default alert rules: (condition_fn, severity, message_template, min_step)
+            self.rules = {
+                # Critical - stop training candidates.
+                "nan_loss": (
+                    lambda logs: np.isnan(logs.get("train/loss_total", 0)),
+                    "critical",
+                    "NaN loss detected at step {step}!",
+                    0,
+                ),
+                "inf_loss": (
+                    lambda logs: np.isinf(logs.get("train/loss_total", 0)),
+                    "critical",
+                    "Inf loss detected at step {step}!",
+                    0,
+                ),
+                "zero_gradients": (
+                    lambda logs: logs.get("grad_norm/global", 1.0) < 1e-8,
+                    "critical",
+                    "Zero gradients detected at step {step}!",
+                    100,
+                ),
+                "codebook_collapse": (
+                    lambda logs: logs.get("codebook/avg_utilization", 1.0)
+                    < self.codebook_collapse_threshold,
+                    "critical",
+                    "Codebook collapsed! Avg utilization {value:.2%} at step {step}",
+                    500,
+                ),
+                # Warnings.
+                "low_utilization": (
+                    lambda logs: logs.get("codebook/avg_utilization", 1.0)
+                    < self.low_utilization_threshold,
+                    "warning",
+                    "Low codebook utilization: {value:.2%} at step {step}",
+                    100,
+                ),
+                "high_vq_ratio": (
+                    lambda logs: logs.get("loss_ratio/vq_to_recon", 0) > 10,
+                    "warning",
+                    "VQ loss dominating: VQ/Recon = {value:.2f} at step {step}",
+                    0,
+                ),
+                "poor_reconstruction": (
+                    lambda logs: logs.get("recon/snr_db", 100)
+                    < self.poor_reconstruction_snr_db,
+                    "warning",
+                    "Poor reconstruction quality: SNR = {value:.2f} dB at step {step}",
+                    50,
+                ),
+                "gradient_spike": (
+                    lambda logs: logs.get("grad_norm/global", 0) > 100,
+                    "warning",
+                    "Gradient spike detected: norm = {value:.2f} at step {step}",
+                    0,
+                ),
+                "low_perplexity": (
+                    lambda logs: logs.get("codebook/avg_perplexity", self.num_embeddings)
+                    < self.low_perplexity_threshold,
+                    "warning",
+                    "Low codebook perplexity: {value:.1f} at step {step} (possible mode collapse)",
+                    100,
+                ),
+                # Info only.
+                "ema_warmup_complete": (
+                    lambda logs: logs.get("ema/num_updates", 0) == 100,
+                    "info",
+                    "EMA warmup complete at step {step}",
+                    0,
+                ),
+            }
+        else:
+            self.rules = rules
+
         self.alert_history: List[Alert] = []
         self.last_alert_step: Dict[str, int] = {}
         self.triggered_rules: set = set()
@@ -576,15 +652,15 @@ class AlertManager:
             try:
                 if check_fn(logs):
                     # Extract relevant value for message
-                    if "utilization" in rule_name:
+                    if rule_name in {"low_utilization", "codebook_collapse"}:
                         value = logs.get("codebook/avg_utilization", 0)
-                    elif "vq_ratio" in rule_name or "vq_to_recon" in rule_name:
+                    elif rule_name == "high_vq_ratio":
                         value = logs.get("loss_ratio/vq_to_recon", 0)
-                    elif "snr" in rule_name:
+                    elif rule_name == "poor_reconstruction":
                         value = logs.get("recon/snr_db", 0)
-                    elif "gradient" in rule_name:
+                    elif rule_name in {"gradient_spike", "zero_gradients"}:
                         value = logs.get("grad_norm/global", 0)
-                    elif "perplexity" in rule_name:
+                    elif rule_name == "low_perplexity":
                         value = logs.get("codebook/avg_perplexity", 0)
                     else:
                         value = 0
@@ -685,6 +761,11 @@ class RQVAEMonitor:
         enable_training: bool = True,
         enable_alerts: bool = True,
         alert_cooldown: int = 100,
+        low_utilization_threshold: float = 0.5,
+        codebook_collapse_threshold: float = 0.1,
+        low_perplexity_ratio: float = 0.2,
+        poor_reconstruction_snr_db: float = 5.0,
+        normalize_recon_to_training_target: bool = True,
     ):
         self.model = model
         self.num_embeddings = num_embeddings
@@ -709,10 +790,25 @@ class RQVAEMonitor:
                     "EMA monitoring requested but no RVQ layers found on model %s",
                     type(model).__name__,
                 )
-        self.recon_monitor = ReconstructionMonitor() if enable_recon else None
+        self.recon_monitor = (
+            ReconstructionMonitor(
+                normalize_like_training=normalize_recon_to_training_target
+            )
+            if enable_recon
+            else None
+        )
         self.training_monitor = TrainingMonitor(model) if enable_training else None
         self.alert_manager = (
-            AlertManager(cooldown_steps=alert_cooldown) if enable_alerts else None
+            AlertManager(
+                cooldown_steps=alert_cooldown,
+                num_embeddings=num_embeddings,
+                codebook_collapse_threshold=codebook_collapse_threshold,
+                low_utilization_threshold=low_utilization_threshold,
+                low_perplexity_ratio=low_perplexity_ratio,
+                poor_reconstruction_snr_db=poor_reconstruction_snr_db,
+            )
+            if enable_alerts
+            else None
         )
 
         self.step_count = 0

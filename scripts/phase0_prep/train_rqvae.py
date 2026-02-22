@@ -136,6 +136,13 @@ def main(cfg: DictConfig):
         enable_training=mon_cfg.get('enable_training', True),
         enable_alerts=mon_cfg.get('enable_alerts', True),
         alert_cooldown=mon_cfg.get('alert_cooldown', 100),
+        low_utilization_threshold=mon_cfg.get('low_utilization_threshold', 0.5),
+        codebook_collapse_threshold=mon_cfg.get('codebook_collapse_threshold', 0.1),
+        low_perplexity_ratio=mon_cfg.get('low_perplexity_ratio', 0.2),
+        poor_reconstruction_snr_db=mon_cfg.get('poor_reconstruction_snr_db', 5.0),
+        normalize_recon_to_training_target=mon_cfg.get(
+            'normalize_recon_to_training_target', True
+        ),
     )
 
     # 2. Setup Data

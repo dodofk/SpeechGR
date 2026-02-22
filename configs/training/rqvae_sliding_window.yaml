@@ -8,7 +8,7 @@ rqvae:
   window_size: 25      # ~0.5s windows at 50fps (WavLM layer 24)
   window_stride: 12    # ~50% overlap
   pooling_hidden_dim: 128
-  aggregate_for_retrieval: "mean"  # "mean", "first", or "all"
+  aggregate_for_retrieval: "vote"  # "vote", "mean", "first", or "all"
 
   # Same as base config
   latent_dim: 1024
@@ -45,6 +45,11 @@ monitoring:
   enable_alerts: true
   summary_interval: 500
   alert_cooldown: 100
+  low_utilization_threshold: 0.3
+  codebook_collapse_threshold: 0.08
+  low_perplexity_ratio: 0.2
+  poor_reconstruction_snr_db: 0.0
+  normalize_recon_to_training_target: true
   stop_on_critical: false
 
 hydra:

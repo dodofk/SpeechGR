@@ -430,7 +430,8 @@ class SlidingWindowDocumentRQVAE(nn.Module):
     this model pools overlapping windows, quantizes each window,
     and reconstructs using cross-attention to all window codes.
 
-    For retrieval, window codes can be mean-pooled to a single representation.
+    For retrieval, window codes can be aggregated to a single document code
+    (or returned as all windows).
     """
     def __init__(
         self,
@@ -448,13 +449,21 @@ class SlidingWindowDocumentRQVAE(nn.Module):
         dropout: float = 0.1,
         commitment_cost: float = 0.25,
         decay: float = 0.9,
-        aggregate_for_retrieval: str = "mean"  # "mean", "first", "all"
+        aggregate_for_retrieval: str = "mean"  # "mean", "vote", "first", "all"
     ):
         super().__init__()
         self.latent_dim = latent_dim
         self.input_dim = input_dim
         self.window_size = window_size
         self.window_stride = window_stride
+        valid_aggregations = {"mean", "vote", "first", "all"}
+        if aggregate_for_retrieval not in valid_aggregations:
+            raise ValueError(
+                "Invalid aggregate_for_retrieval='{}'; expected one of {}".format(
+                    aggregate_for_retrieval,
+                    sorted(valid_aggregations),
+                )
+            )
         self.aggregate_for_retrieval = aggregate_for_retrieval
 
         # 1. Input Projection & Normalization
@@ -558,6 +567,7 @@ class SlidingWindowDocumentRQVAE(nn.Module):
         Returns document-level codes for retrieval.
 
         If aggregate_for_retrieval="mean": quantizes the mean window embedding -> [B, num_codebooks]
+        If aggregate_for_retrieval="vote": majority-votes window codes per codebook -> [B, num_codebooks]
         If aggregate_for_retrieval="first": returns first window code -> [B, num_codebooks]
         If aggregate_for_retrieval="all": returns all window codes -> [B, num_windows, num_codebooks]
         """
@@ -576,6 +586,10 @@ class SlidingWindowDocumentRQVAE(nn.Module):
                 z_doc = z_q_windows.mean(dim=1, keepdim=True)  # [B, 1, D]
                 _, _, doc_codes = self.rvq(z_doc)
                 return doc_codes.squeeze(1)
+            elif self.aggregate_for_retrieval == "vote":
+                # Majority vote over windows for each codebook layer.
+                # torch.mode ties are deterministic (first occurrence).
+                return torch.mode(codes, dim=1).values
             elif self.aggregate_for_retrieval == "first":
                 # Use first window -> [B, num_codebooks]
                 return codes[:, 0]
