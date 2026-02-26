@@ -1,23 +1,98 @@
 import logging
 import os
 from collections import defaultdict
+
 import hydra
+import numpy as np
+import soundfile as sf
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
-from torch.utils.data import DataLoader, Dataset
-from omegaconf import DictConfig, OmegaConf
-from tqdm import tqdm
-import soundfile as sf
-import numpy as np
 import wandb
+from omegaconf import DictConfig, OmegaConf
+from torch.utils.data import DataLoader, Dataset
+from tqdm import tqdm
 
 from speechgr.models.ssl_wrapper import SSLModelWrapper
 from speechgr.models.rqvae import DocumentRQVAE, SlidingWindowDocumentRQVAE
 from speechgr.utils import RQVAEMonitor
 
 logger = logging.getLogger(__name__)
+
+
+def build_lr_scheduler(
+    optimizer: torch.optim.Optimizer,
+    training_cfg: DictConfig,
+    num_training_steps: int,
+):
+    """Build a configurable LR scheduler from Hydra training config."""
+
+    scheduler_cfg = training_cfg.get("scheduler", {})
+    scheduler_type = str(scheduler_cfg.get("type", "linear")).lower()
+    warmup_steps_override = scheduler_cfg.get("warmup_steps", None)
+    warmup_ratio = float(scheduler_cfg.get("warmup_ratio", 0.1))
+    cosine_cycles = float(scheduler_cfg.get("cosine_cycles", 0.5))
+
+    if num_training_steps <= 0:
+        raise ValueError(f"num_training_steps must be positive, got {num_training_steps}")
+
+    if warmup_steps_override is None:
+        num_warmup_steps = int(warmup_ratio * num_training_steps)
+    else:
+        num_warmup_steps = int(warmup_steps_override)
+
+    num_warmup_steps = max(0, min(num_warmup_steps, num_training_steps))
+
+    if scheduler_type in {"none", "disabled"}:
+        return None, {
+            "type": scheduler_type,
+            "num_training_steps": num_training_steps,
+            "num_warmup_steps": num_warmup_steps,
+        }
+
+    from transformers import (
+        get_constant_schedule,
+        get_constant_schedule_with_warmup,
+        get_cosine_schedule_with_warmup,
+        get_linear_schedule_with_warmup,
+    )
+
+    if scheduler_type == "linear":
+        scheduler = get_linear_schedule_with_warmup(
+            optimizer,
+            num_warmup_steps=num_warmup_steps,
+            num_training_steps=num_training_steps,
+        )
+    elif scheduler_type == "cosine":
+        scheduler = get_cosine_schedule_with_warmup(
+            optimizer,
+            num_warmup_steps=num_warmup_steps,
+            num_training_steps=num_training_steps,
+            num_cycles=cosine_cycles,
+        )
+    elif scheduler_type == "constant_with_warmup":
+        scheduler = get_constant_schedule_with_warmup(
+            optimizer,
+            num_warmup_steps=num_warmup_steps,
+        )
+    elif scheduler_type == "constant":
+        scheduler = get_constant_schedule(optimizer)
+    else:
+        raise ValueError(
+            "Unsupported scheduler type '{}'. Expected one of: "
+            "linear, cosine, constant_with_warmup, constant, none".format(
+                scheduler_type
+            )
+        )
+
+    return scheduler, {
+        "type": scheduler_type,
+        "num_training_steps": num_training_steps,
+        "num_warmup_steps": num_warmup_steps,
+        "warmup_ratio": warmup_ratio,
+        "cosine_cycles": cosine_cycles,
+    }
 
 class AudioManifestDataset(Dataset):
     """
@@ -170,15 +245,18 @@ def main(cfg: DictConfig):
     # 3. Setup Optimizer & Scheduler
     optimizer = optim.AdamW(rqvae.parameters(), lr=cfg.training.lr, weight_decay=0.01)
     
-    # Calculate total steps for warmup
+    # Calculate total steps and build scheduler
     num_training_steps = cfg.training.epochs * len(dataloader)
-    num_warmup_steps = int(0.1 * num_training_steps) # 10% warmup
-    
-    from transformers import get_linear_schedule_with_warmup
-    scheduler = get_linear_schedule_with_warmup(
-        optimizer, 
-        num_warmup_steps=num_warmup_steps, 
-        num_training_steps=num_training_steps
+    scheduler, scheduler_info = build_lr_scheduler(
+        optimizer=optimizer,
+        training_cfg=cfg.training,
+        num_training_steps=num_training_steps,
+    )
+    logger.info(
+        "Using LR scheduler=%s (warmup_steps=%s, total_steps=%s)",
+        scheduler_info["type"],
+        scheduler_info.get("num_warmup_steps", 0),
+        scheduler_info["num_training_steps"],
     )
     
     # 4. Training Loop
@@ -225,7 +303,8 @@ def main(cfg: DictConfig):
             total_loss.backward()
             torch.nn.utils.clip_grad_norm_(rqvae.parameters(), 1.0)
             optimizer.step()
-            scheduler.step()
+            if scheduler is not None:
+                scheduler.step()
 
             step += 1
 

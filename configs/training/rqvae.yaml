@@ -24,6 +24,11 @@ training:
   lr: 1e-4
   epochs: 50
   save_steps: 1000
+  scheduler:
+    type: linear  # linear | cosine | constant_with_warmup | constant | none
+    warmup_ratio: 0.1
+    warmup_steps: null  # Optional override; if set, warmup_ratio is ignored
+    cosine_cycles: 0.5  # Only used when type=cosine
 
 logging:
   project: "speechgr-rqvae"
