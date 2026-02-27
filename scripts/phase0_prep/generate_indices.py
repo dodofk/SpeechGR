@@ -2,6 +2,8 @@ import torch
 import json
 import argparse
 import os
+from typing import Dict
+
 from tqdm import tqdm
 from pathlib import Path
 import numpy as np
@@ -10,7 +12,7 @@ import joblib
 from sklearn.cluster import MiniBatchKMeans
 
 from speechgr.models.ssl_wrapper import SSLModelWrapper
-from speechgr.models.rqvae import DocumentRQVAE
+from speechgr.models.rqvae import DocumentRQVAE, SlidingWindowDocumentRQVAE
 
 def load_kmeans(path):
     return joblib.load(path)
@@ -24,6 +26,60 @@ def train_kmeans(features, n_clusters=500, batch_size=10000):
 def get_audio_paths(root):
     return list(Path(root).rglob("*.wav")) + list(Path(root).rglob("*.flac"))
 
+
+def _unwrap_state_dict(raw_checkpoint):
+    """Support both plain state_dict and wrapped checkpoints."""
+    if not isinstance(raw_checkpoint, dict):
+        return raw_checkpoint
+
+    for key in ("state_dict", "model_state_dict", "model"):
+        if key in raw_checkpoint and isinstance(raw_checkpoint[key], dict):
+            return raw_checkpoint[key]
+    return raw_checkpoint
+
+
+def _infer_pooling_type_from_state_dict(state_dict: Dict[str, torch.Tensor]) -> str:
+    if any(k.startswith("pooling.pool.") or k.startswith("decoder.self_attn_layers") for k in state_dict):
+        return "sliding_window"
+    return "global"
+
+
+def _build_rqvae(args, input_dim: int, pooling_type: str):
+    common_kwargs = {
+        "input_dim": input_dim,
+        "latent_dim": args.rqvae_latent_dim,
+        "codebook_size": args.rqvae_codebook_size,
+        "num_codebooks": args.rqvae_num_codebooks,
+        "commitment_cost": args.rqvae_commitment_cost,
+        "decay": args.rqvae_decay,
+        "num_encoder_layers": args.rqvae_num_encoder_layers,
+        "num_decoder_layers": args.rqvae_num_decoder_layers,
+    }
+
+    if pooling_type == "sliding_window":
+        return SlidingWindowDocumentRQVAE(
+            **common_kwargs,
+            window_size=args.rqvae_window_size,
+            window_stride=args.rqvae_window_stride,
+            pooling_hidden_dim=args.rqvae_pooling_hidden_dim,
+            aggregate_for_retrieval=args.rqvae_aggregate_for_retrieval,
+        )
+
+    return DocumentRQVAE(**common_kwargs)
+
+
+def _compact_window_codes(codes: torch.Tensor, mode: str) -> torch.Tensor:
+    """
+    Convert [B, num_windows, num_codebooks] to [B, num_codebooks].
+
+    This keeps ID lengths bounded for trie-based retrieval.
+    """
+    if mode == "vote":
+        return torch.mode(codes, dim=1).values
+    if mode == "first":
+        return codes[:, 0]
+    raise ValueError(f"Unsupported compaction mode: {mode}")
+
 def main(args):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     
@@ -36,13 +92,21 @@ def main(args):
     rqvae = None
     if args.rqvae_checkpoint and os.path.exists(args.rqvae_checkpoint):
         print(f"Loading RQ-VAE from {args.rqvae_checkpoint}...")
-        rqvae = DocumentRQVAE(
-            input_dim=ssl_model.feature_dim,
-            latent_dim=args.rqvae_latent_dim,
-            codebook_size=args.rqvae_codebook_size,
-            num_codebooks=args.rqvae_num_codebooks
-        ).to(device)
-        rqvae.load_state_dict(torch.load(args.rqvae_checkpoint, map_location=device))
+        raw_checkpoint = torch.load(args.rqvae_checkpoint, map_location=device)
+        state_dict = _unwrap_state_dict(raw_checkpoint)
+
+        pooling_type = args.rqvae_pooling_type
+        if pooling_type == "auto":
+            pooling_type = _infer_pooling_type_from_state_dict(state_dict)
+        print(f"Detected/selected RQ-VAE pooling type: {pooling_type}")
+
+        rqvae = _build_rqvae(args, ssl_model.feature_dim, pooling_type).to(device)
+        load_result = rqvae.load_state_dict(state_dict, strict=False)
+
+        if load_result.missing_keys:
+            print(f"Warning: missing keys when loading RQ-VAE: {len(load_result.missing_keys)}")
+        if load_result.unexpected_keys:
+            print(f"Warning: unexpected keys when loading RQ-VAE: {len(load_result.unexpected_keys)}")
         rqvae.eval()
     else:
         print("Warning: No RQ-VAE checkpoint provided. Skipping ID generation.")
@@ -91,6 +155,7 @@ def main(args):
         
         id_map = {}
         semantic_map = {}
+        warned_window_compaction = False
         
         with torch.no_grad():
             for p in tqdm(audio_paths):
@@ -104,6 +169,23 @@ def main(args):
                     # Generate Document ID
                     if rqvae:
                         codes = rqvae.encode(feats) # [1, 8]
+
+                        # Guardrail: avoid oversized variable-length IDs from window-level output.
+                        if codes.dim() == 3:
+                            if not warned_window_compaction:
+                                print(
+                                    "Warning: encode() returned window-level codes; "
+                                    f"compacting with mode={args.rqvae_compact_all_mode}"
+                                )
+                                warned_window_compaction = True
+                            codes = _compact_window_codes(codes, args.rqvae_compact_all_mode)
+
+                        if codes.dim() != 2:
+                            raise ValueError(
+                                "Expected document codes with shape [B, num_codebooks], "
+                                f"got {tuple(codes.shape)}"
+                            )
+
                         id_map[str(p)] = codes.squeeze(0).cpu().tolist()
                     
                     # Generate Semantic Tokens
@@ -140,9 +222,37 @@ if __name__ == "__main__":
     
     # RQ-VAE
     parser.add_argument("--rqvae_checkpoint", type=str, default=None)
+    parser.add_argument(
+        "--rqvae_pooling_type",
+        type=str,
+        default="auto",
+        choices=["auto", "global", "sliding_window"],
+        help="Model family used to build the RQ-VAE before loading checkpoint",
+    )
     parser.add_argument("--rqvae_latent_dim", type=int, default=1024)
     parser.add_argument("--rqvae_codebook_size", type=int, default=256)
     parser.add_argument("--rqvae_num_codebooks", type=int, default=8)
+    parser.add_argument("--rqvae_num_encoder_layers", type=int, default=4)
+    parser.add_argument("--rqvae_num_decoder_layers", type=int, default=4)
+    parser.add_argument("--rqvae_commitment_cost", type=float, default=0.25)
+    parser.add_argument("--rqvae_decay", type=float, default=0.99)
+    parser.add_argument("--rqvae_window_size", type=int, default=25)
+    parser.add_argument("--rqvae_window_stride", type=int, default=12)
+    parser.add_argument("--rqvae_pooling_hidden_dim", type=int, default=128)
+    parser.add_argument(
+        "--rqvae_aggregate_for_retrieval",
+        type=str,
+        default="vote",
+        choices=["vote", "mean", "first", "all"],
+        help="Sliding-window aggregation mode used by SlidingWindowDocumentRQVAE.encode()",
+    )
+    parser.add_argument(
+        "--rqvae_compact_all_mode",
+        type=str,
+        default="vote",
+        choices=["vote", "first"],
+        help="Fallback compaction if encode() returns all window codes",
+    )
     
     # K-Means
     parser.add_argument("--kmeans_model", type=str, default=None)
