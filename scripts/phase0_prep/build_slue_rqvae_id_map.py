@@ -64,15 +64,19 @@ def _compact_window_codes(codes: torch.Tensor, mode: str) -> torch.Tensor:
 
 
 def _load_audio_from_hf_field(audio_entry, target_sr: int) -> np.ndarray:
-    path = audio_entry.get("path")
-    raw_bytes = audio_entry.get("bytes")
-
-    if path:
-        wav, sr = sf.read(path)
-    elif raw_bytes is not None:
-        wav, sr = sf.read(io.BytesIO(raw_bytes))
+    if isinstance(audio_entry, dict) and audio_entry.get("array") is not None:
+        wav = np.asarray(audio_entry["array"], dtype=np.float32)
+        sr = int(audio_entry.get("sampling_rate", target_sr))
     else:
-        raise ValueError("Audio field missing both path and bytes")
+        path = audio_entry.get("path")
+        raw_bytes = audio_entry.get("bytes")
+
+        if path:
+            wav, sr = sf.read(path)
+        elif raw_bytes is not None:
+            wav, sr = sf.read(io.BytesIO(raw_bytes))
+        else:
+            raise ValueError("Audio field missing array, path, and bytes")
 
     if wav.ndim > 1:
         wav = wav.mean(axis=1)
@@ -117,6 +121,12 @@ def main():
         action=argparse.BooleanOptionalAction,
         default=True,
         help="Stream SLUE from Hugging Face instead of materializing the whole dataset locally",
+    )
+    parser.add_argument(
+        "--decode_audio",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Decode HF audio columns to arrays instead of exposing raw path/bytes payloads",
     )
     parser.add_argument(
         "--splits",
@@ -178,8 +188,12 @@ def main():
         args.dataset_config,
         streaming=args.streaming,
     )
-    dataset = dataset.cast_column("question_audio", Audio(decode=False))
-    dataset = dataset.cast_column("document_audio", Audio(decode=False))
+    if args.decode_audio:
+        dataset = dataset.cast_column("question_audio", Audio())
+        dataset = dataset.cast_column("document_audio", Audio())
+    else:
+        dataset = dataset.cast_column("question_audio", Audio(decode=False))
+        dataset = dataset.cast_column("document_audio", Audio(decode=False))
 
     splits = [s.strip() for s in args.splits.split(",") if s.strip()]
     print("Scanning unique documents lazily across splits")
@@ -189,7 +203,14 @@ def main():
     ssl_model.eval()
 
     print(f"Loading RQ-VAE checkpoint: {args.rqvae_checkpoint}")
-    raw_checkpoint = torch.load(args.rqvae_checkpoint, map_location=device)
+    try:
+        raw_checkpoint = torch.load(
+            args.rqvae_checkpoint,
+            map_location=device,
+            weights_only=True,
+        )
+    except TypeError:
+        raw_checkpoint = torch.load(args.rqvae_checkpoint, map_location=device)
     state_dict = _unwrap_state_dict(raw_checkpoint)
 
     pooling_type = args.rqvae_pooling_type
