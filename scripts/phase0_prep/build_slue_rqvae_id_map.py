@@ -71,10 +71,11 @@ def _load_audio_from_hf_field(audio_entry, target_sr: int) -> np.ndarray:
         path = audio_entry.get("path")
         raw_bytes = audio_entry.get("bytes")
 
-        if path:
-            wav, sr = sf.read(path)
-        elif raw_bytes is not None:
+        # Prefer embedded bytes when available to avoid relying on dataset-local paths.
+        if raw_bytes is not None:
             wav, sr = sf.read(io.BytesIO(raw_bytes))
+        elif path:
+            wav, sr = sf.read(path)
         else:
             raise ValueError("Audio field missing array, path, and bytes")
 
@@ -125,7 +126,7 @@ def main():
     parser.add_argument(
         "--decode_audio",
         action=argparse.BooleanOptionalAction,
-        default=True,
+        default=False,
         help="Decode HF audio columns to arrays instead of exposing raw path/bytes payloads",
     )
     parser.add_argument(
