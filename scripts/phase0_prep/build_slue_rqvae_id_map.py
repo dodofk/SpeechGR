@@ -2,6 +2,7 @@ import argparse
 import csv
 import io
 import json
+import tempfile
 from pathlib import Path
 from typing import Dict, Iterable, Iterator, List, Tuple
 
@@ -109,12 +110,49 @@ def _open_pairs_writer(path: Path):
     return handle, writer
 
 
+def _open_pairs_append_writer(path: Path):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    handle = path.open("a", newline="")
+    writer = csv.DictWriter(handle, fieldnames=["document_id", "document_text"])
+    return handle, writer
+
+
+def _save_id_map_atomic(id_map: Dict[str, List[int]], path: Path) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.NamedTemporaryFile("w", delete=False, dir=path.parent) as handle:
+        json.dump(id_map, handle)
+        tmp_path = Path(handle.name)
+    tmp_path.replace(path)
+
+
+def _load_existing_id_map(path: Path) -> Dict[str, List[int]]:
+    if not path.exists():
+        return {}
+    with path.open("r") as f:
+        data = json.load(f)
+    if not isinstance(data, dict):
+        raise ValueError(f"Existing id_map at {path} is not a JSON object")
+    return {str(k): v for k, v in data.items()}
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Build SLUE-SQA5 document id_map using a trained RQ-VAE checkpoint"
     )
     parser.add_argument("--output_id_map", type=str, required=True)
     parser.add_argument("--output_pairs_csv", type=str, default="")
+    parser.add_argument(
+        "--resume",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Resume from an existing id_map.json instead of recomputing finished documents",
+    )
+    parser.add_argument(
+        "--save_every",
+        type=int,
+        default=100,
+        help="Checkpoint id_map.json every N newly encoded documents",
+    )
     parser.add_argument("--dataset_name", type=str, default="asapp/slue-phase-2")
     parser.add_argument("--dataset_config", type=str, default="sqa5")
     parser.add_argument(
@@ -227,21 +265,39 @@ def main():
         print(f"Warning: unexpected keys when loading RQ-VAE: {len(load_result.unexpected_keys)}")
     rqvae.eval()
 
+    output_id_map = Path(args.output_id_map)
     id_map: Dict[str, List[int]] = {}
+    if args.resume:
+        id_map = _load_existing_id_map(output_id_map)
+        if id_map:
+            print(f"Resuming from existing id_map with {len(id_map)} documents")
+
     warned_window_codes = False
-    processed_docs = 0
+    resumed_docs = len(id_map)
+    newly_processed_docs = 0
 
     pairs_handle = None
     pairs_writer = None
+    append_pairs = False
     if args.output_pairs_csv:
         pairs_path = Path(args.output_pairs_csv)
-        pairs_handle, pairs_writer = _open_pairs_writer(pairs_path)
+        append_pairs = args.resume and pairs_path.exists() and bool(id_map)
+        if append_pairs:
+            print(f"Appending new rows to existing pairs CSV at {pairs_path}")
+            pairs_handle, pairs_writer = _open_pairs_append_writer(pairs_path)
+        else:
+            pairs_handle, pairs_writer = _open_pairs_writer(pairs_path)
 
     with torch.no_grad():
         doc_iter = _iter_unique_documents(dataset, splits=splits)
         for doc_id, audio_entry, doc_text in tqdm(doc_iter, desc="Encoding documents"):
-            if args.max_docs > 0 and processed_docs >= args.max_docs:
+            if args.max_docs > 0 and len(id_map) >= args.max_docs:
                 break
+
+            if doc_id in id_map:
+                if pairs_writer is not None and not append_pairs:
+                    pairs_writer.writerow({"document_id": doc_id, "document_text": doc_text})
+                continue
 
             wav = _load_audio_from_hf_field(audio_entry, target_sr=args.audio_sample_rate)
             audio_tensor = torch.from_numpy(wav).unsqueeze(0).to(device)
@@ -268,17 +324,26 @@ def main():
             if pairs_writer is not None:
                 pairs_writer.writerow({"document_id": doc_id, "document_text": doc_text})
 
-            processed_docs += 1
+            newly_processed_docs += 1
+
+            if args.save_every > 0 and newly_processed_docs % args.save_every == 0:
+                _save_id_map_atomic(id_map, output_id_map)
+                if pairs_handle is not None:
+                    pairs_handle.flush()
+                print(
+                    f"Checkpointed {len(id_map)} documents "
+                    f"({newly_processed_docs} new this run)"
+                )
 
     if pairs_handle is not None:
         pairs_handle.close()
 
-    print(f"Processed {processed_docs} unique documents")
+    print(
+        f"Processed {len(id_map)} unique documents total "
+        f"({newly_processed_docs} new, {resumed_docs} resumed)"
+    )
 
-    output_id_map = Path(args.output_id_map)
-    output_id_map.parent.mkdir(parents=True, exist_ok=True)
-    with output_id_map.open("w") as f:
-        json.dump(id_map, f)
+    _save_id_map_atomic(id_map, output_id_map)
     print(f"Saved id_map to {output_id_map}")
 
     if args.output_pairs_csv:
