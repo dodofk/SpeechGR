@@ -3,7 +3,7 @@ import csv
 import io
 import json
 from pathlib import Path
-from typing import Dict, List, Tuple
+from typing import Dict, Iterable, Iterator, List, Tuple
 
 import librosa
 import numpy as np
@@ -83,9 +83,8 @@ def _load_audio_from_hf_field(audio_entry, target_sr: int) -> np.ndarray:
     return wav.astype(np.float32)
 
 
-def _collect_unique_documents(dataset, splits: List[str]) -> List[Tuple[str, dict, str]]:
+def _iter_unique_documents(dataset, splits: Iterable[str]) -> Iterator[Tuple[str, dict, str]]:
     seen = set()
-    docs: List[Tuple[str, dict, str]] = []
 
     for split in splits:
         for row in dataset[split]:
@@ -94,18 +93,15 @@ def _collect_unique_documents(dataset, splits: List[str]) -> List[Tuple[str, dic
                 continue
             seen.add(doc_id)
             doc_text = row.get("normalized_document_text") or row.get("raw_document_text") or ""
-            docs.append((doc_id, row["document_audio"], str(doc_text)))
-
-    return docs
+            yield doc_id, row["document_audio"], str(doc_text)
 
 
-def _write_pairs_csv(path: Path, rows: List[Tuple[str, str]]) -> None:
+def _open_pairs_writer(path: Path):
     path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=["document_id", "document_text"])
-        writer.writeheader()
-        for doc_id, doc_text in rows:
-            writer.writerow({"document_id": doc_id, "document_text": doc_text})
+    handle = path.open("w", newline="")
+    writer = csv.DictWriter(handle, fieldnames=["document_id", "document_text"])
+    writer.writeheader()
+    return handle, writer
 
 
 def main():
@@ -116,6 +112,12 @@ def main():
     parser.add_argument("--output_pairs_csv", type=str, default="")
     parser.add_argument("--dataset_name", type=str, default="asapp/slue-phase-2")
     parser.add_argument("--dataset_config", type=str, default="sqa5")
+    parser.add_argument(
+        "--streaming",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Stream SLUE from Hugging Face instead of materializing the whole dataset locally",
+    )
     parser.add_argument(
         "--splits",
         type=str,
@@ -171,16 +173,16 @@ def main():
         device = requested_device
 
     print("Loading SLUE dataset metadata from Hugging Face...")
-    dataset = load_dataset(args.dataset_name, args.dataset_config)
+    dataset = load_dataset(
+        args.dataset_name,
+        args.dataset_config,
+        streaming=args.streaming,
+    )
     dataset = dataset.cast_column("question_audio", Audio(decode=False))
     dataset = dataset.cast_column("document_audio", Audio(decode=False))
 
     splits = [s.strip() for s in args.splits.split(",") if s.strip()]
-    docs = _collect_unique_documents(dataset, splits=splits)
-    if args.max_docs > 0:
-        docs = docs[: args.max_docs]
-
-    print(f"Collected {len(docs)} unique documents")
+    print("Scanning unique documents lazily across splits")
 
     print(f"Loading SSL model: {args.ssl_model} (layer={args.ssl_layer})")
     ssl_model = SSLModelWrapper(args.ssl_model, layer=args.ssl_layer, freeze=True).to(device)
@@ -204,11 +206,21 @@ def main():
     rqvae.eval()
 
     id_map: Dict[str, List[int]] = {}
-    pair_rows: List[Tuple[str, str]] = []
     warned_window_codes = False
+    processed_docs = 0
+
+    pairs_handle = None
+    pairs_writer = None
+    if args.output_pairs_csv:
+        pairs_path = Path(args.output_pairs_csv)
+        pairs_handle, pairs_writer = _open_pairs_writer(pairs_path)
 
     with torch.no_grad():
-        for doc_id, audio_entry, doc_text in tqdm(docs, desc="Encoding documents"):
+        doc_iter = _iter_unique_documents(dataset, splits=splits)
+        for doc_id, audio_entry, doc_text in tqdm(doc_iter, desc="Encoding documents"):
+            if args.max_docs > 0 and processed_docs >= args.max_docs:
+                break
+
             wav = _load_audio_from_hf_field(audio_entry, target_sr=args.audio_sample_rate)
             audio_tensor = torch.from_numpy(wav).unsqueeze(0).to(device)
 
@@ -231,7 +243,15 @@ def main():
                 )
 
             id_map[doc_id] = codes.squeeze(0).cpu().tolist()
-            pair_rows.append((doc_id, doc_text))
+            if pairs_writer is not None:
+                pairs_writer.writerow({"document_id": doc_id, "document_text": doc_text})
+
+            processed_docs += 1
+
+    if pairs_handle is not None:
+        pairs_handle.close()
+
+    print(f"Processed {processed_docs} unique documents")
 
     output_id_map = Path(args.output_id_map)
     output_id_map.parent.mkdir(parents=True, exist_ok=True)
@@ -240,11 +260,8 @@ def main():
     print(f"Saved id_map to {output_id_map}")
 
     if args.output_pairs_csv:
-        pairs_path = Path(args.output_pairs_csv)
-        _write_pairs_csv(pairs_path, pair_rows)
         print(f"Saved document pairs CSV to {pairs_path}")
 
 
 if __name__ == "__main__":
     main()
-
