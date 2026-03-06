@@ -226,6 +226,7 @@ def main():
     )
     parser.add_argument(
         "--decode_audio",
+        "--decode-audio",
         action=argparse.BooleanOptionalAction,
         default=False,
         help="Decode HF audio columns to arrays instead of exposing raw path/bytes payloads",
