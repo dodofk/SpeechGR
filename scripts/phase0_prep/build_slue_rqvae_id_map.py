@@ -135,6 +135,63 @@ def _load_existing_id_map(path: Path) -> Dict[str, List[int]]:
     return {str(k): v for k, v in data.items()}
 
 
+def _encode_doc_batch(
+    docs: List[Tuple[str, np.ndarray, str]],
+    ssl_model: SSLModelWrapper,
+    rqvae,
+    device: torch.device,
+    ssl_frame_hop: int,
+    compact_mode: str,
+) -> Tuple[List[Tuple[str, List[int], str]], bool]:
+    """Encode a batch of waveforms into RQ-VAE document codes."""
+
+    batch_size = len(docs)
+    lengths = torch.tensor([len(wav) for _, wav, _ in docs], dtype=torch.long, device=device)
+    max_len = int(lengths.max().item())
+
+    batch_audio = torch.zeros(batch_size, max_len, dtype=torch.float32, device=device)
+    for idx, (_, wav, _) in enumerate(docs):
+        wav_tensor = torch.from_numpy(wav).to(device)
+        batch_audio[idx, : wav_tensor.shape[0]] = wav_tensor
+
+    audio_mask = (
+        torch.arange(max_len, device=device).expand(batch_size, max_len)
+        < lengths.unsqueeze(1)
+    )
+
+    feats = ssl_model(batch_audio, attention_mask=audio_mask.long())
+
+    feat_lengths = torch.clamp(
+        lengths // max(1, ssl_frame_hop),
+        min=1,
+        max=feats.size(1),
+    )
+    feat_mask = (
+        torch.arange(feats.size(1), device=device).expand(batch_size, feats.size(1))
+        < feat_lengths.unsqueeze(1)
+    )
+
+    codes = rqvae.encode(feats, mask=feat_mask)
+
+    used_window_compaction = False
+    if codes.dim() == 3:
+        codes = _compact_window_codes(codes, compact_mode)
+        used_window_compaction = True
+
+    if codes.dim() != 2:
+        raise ValueError(
+            "Expected code tensor shape [B, num_codebooks], "
+            f"got {tuple(codes.shape)}"
+        )
+
+    codes_cpu = codes.cpu().tolist()
+    result = []
+    for idx, (doc_id, _, doc_text) in enumerate(docs):
+        result.append((doc_id, codes_cpu[idx], doc_text))
+
+    return result, used_window_compaction
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Build SLUE-SQA5 document id_map using a trained RQ-VAE checkpoint"
@@ -152,6 +209,12 @@ def main():
         type=int,
         default=100,
         help="Checkpoint id_map.json every N newly encoded documents",
+    )
+    parser.add_argument(
+        "--batch_size",
+        type=int,
+        default=8,
+        help="Number of documents to encode in one GPU forward pass",
     )
     parser.add_argument("--dataset_name", type=str, default="asapp/slue-phase-2")
     parser.add_argument("--dataset_config", type=str, default="sqa5")
@@ -178,6 +241,12 @@ def main():
     parser.add_argument("--ssl_model", type=str, default="microsoft/wavlm-large")
     parser.add_argument("--ssl_layer", type=int, default=22)
     parser.add_argument("--audio_sample_rate", type=int, default=16000)
+    parser.add_argument(
+        "--ssl_frame_hop",
+        type=int,
+        default=320,
+        help="Samples per SSL frame for approximate length mask projection",
+    )
 
     parser.add_argument("--rqvae_checkpoint", type=str, required=True)
     parser.add_argument(
@@ -290,6 +359,46 @@ def main():
 
     with torch.no_grad():
         doc_iter = _iter_unique_documents(dataset, splits=splits)
+        pending_docs: List[Tuple[str, np.ndarray, str]] = []
+
+        def flush_pending() -> None:
+            nonlocal warned_window_codes, newly_processed_docs
+            if not pending_docs:
+                return
+
+            encoded_rows, used_window_compaction = _encode_doc_batch(
+                pending_docs,
+                ssl_model=ssl_model,
+                rqvae=rqvae,
+                device=device,
+                ssl_frame_hop=args.ssl_frame_hop,
+                compact_mode=args.rqvae_compact_all_mode,
+            )
+
+            if used_window_compaction and not warned_window_codes:
+                print(
+                    "Warning: encode() returned window-level codes; "
+                    f"compacting with mode={args.rqvae_compact_all_mode}"
+                )
+                warned_window_codes = True
+
+            for doc_id, code_row, doc_text in encoded_rows:
+                id_map[doc_id] = code_row
+                if pairs_writer is not None:
+                    pairs_writer.writerow({"document_id": doc_id, "document_text": doc_text})
+                newly_processed_docs += 1
+
+                if args.save_every > 0 and newly_processed_docs % args.save_every == 0:
+                    _save_id_map_atomic(id_map, output_id_map)
+                    if pairs_handle is not None:
+                        pairs_handle.flush()
+                    print(
+                        f"Checkpointed {len(id_map)} documents "
+                        f"({newly_processed_docs} new this run)"
+                    )
+
+            pending_docs.clear()
+
         for doc_id, audio_entry, doc_text in tqdm(doc_iter, desc="Encoding documents"):
             if args.max_docs > 0 and len(id_map) >= args.max_docs:
                 break
@@ -300,40 +409,11 @@ def main():
                 continue
 
             wav = _load_audio_from_hf_field(audio_entry, target_sr=args.audio_sample_rate)
-            audio_tensor = torch.from_numpy(wav).unsqueeze(0).to(device)
+            pending_docs.append((doc_id, wav, doc_text))
+            if len(pending_docs) >= max(1, args.batch_size):
+                flush_pending()
 
-            feats = ssl_model(audio_tensor)
-            codes = rqvae.encode(feats)
-
-            if codes.dim() == 3:
-                if not warned_window_codes:
-                    print(
-                        "Warning: encode() returned window-level codes; "
-                        f"compacting with mode={args.rqvae_compact_all_mode}"
-                    )
-                    warned_window_codes = True
-                codes = _compact_window_codes(codes, args.rqvae_compact_all_mode)
-
-            if codes.dim() != 2:
-                raise ValueError(
-                    "Expected code tensor shape [B, num_codebooks], "
-                    f"got {tuple(codes.shape)}"
-                )
-
-            id_map[doc_id] = codes.squeeze(0).cpu().tolist()
-            if pairs_writer is not None:
-                pairs_writer.writerow({"document_id": doc_id, "document_text": doc_text})
-
-            newly_processed_docs += 1
-
-            if args.save_every > 0 and newly_processed_docs % args.save_every == 0:
-                _save_id_map_atomic(id_map, output_id_map)
-                if pairs_handle is not None:
-                    pairs_handle.flush()
-                print(
-                    f"Checkpointed {len(id_map)} documents "
-                    f"({newly_processed_docs} new this run)"
-                )
+        flush_pending()
 
     if pairs_handle is not None:
         pairs_handle.close()
