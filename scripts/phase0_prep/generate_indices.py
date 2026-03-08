@@ -78,6 +78,37 @@ def _compact_window_codes(codes: torch.Tensor, mode: str) -> torch.Tensor:
         return torch.mode(codes, dim=1).values
     if mode == "first":
         return codes[:, 0]
+    if mode in {"top2", "top3"}:
+        k = int(mode[-1])
+        # Output shape: [B, num_codebooks * k], grouped by codebook layer.
+        batch_size, _, num_layers = codes.shape
+        rows = []
+        for b in range(batch_size):
+            layer_tokens = []
+            for layer_idx in range(num_layers):
+                layer_codes = codes[b, :, layer_idx].to(torch.long)
+                if layer_codes.numel() == 0:
+                    picks = torch.zeros(k, dtype=torch.long, device=codes.device)
+                else:
+                    max_id = int(layer_codes.max().item())
+                    counts = torch.bincount(layer_codes, minlength=max_id + 1)
+                    active = torch.nonzero(counts > 0, as_tuple=False).flatten()
+                    if active.numel() == 0:
+                        picks = torch.zeros(k, dtype=torch.long, device=codes.device)
+                    else:
+                        order = torch.argsort(counts[active], descending=True)
+                        ranked = active[order]
+                        if ranked.numel() >= k:
+                            picks = ranked[:k]
+                        else:
+                            pad = ranked[-1].repeat(k - ranked.numel())
+                            picks = torch.cat([ranked, pad], dim=0)
+
+                layer_tokens.append(picks)
+
+            rows.append(torch.cat(layer_tokens, dim=0))
+
+        return torch.stack(rows, dim=0)
     raise ValueError(f"Unsupported compaction mode: {mode}")
 
 def main(args):
@@ -250,7 +281,7 @@ if __name__ == "__main__":
         "--rqvae_compact_all_mode",
         type=str,
         default="vote",
-        choices=["vote", "first"],
+        choices=["vote", "first", "top2", "top3"],
         help="Fallback compaction if encode() returns all window codes",
     )
     

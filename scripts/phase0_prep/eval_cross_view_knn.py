@@ -64,9 +64,9 @@ def _normalize_code_entry(
     arr = np.asarray(entry, dtype=np.int64)
 
     if arr.ndim == 1:
-        if arr.shape[0] != num_layers:
+        if arr.shape[0] % num_layers != 0:
             raise ValueError(
-                f"Code length mismatch: expected {num_layers}, got {arr.shape[0]}"
+                f"Code length mismatch: expected multiple of {num_layers}, got {arr.shape[0]}"
             )
         return arr
 
@@ -80,6 +80,21 @@ def _normalize_code_entry(
             return _majority_vote(arr, num_embeddings=codebook_size)
         if compact_mode == "first":
             return arr[0]
+        if compact_mode in {"top2", "top3"}:
+            k = int(compact_mode[-1])
+            picks = []
+            for col in range(arr.shape[1]):
+                counts = np.bincount(arr[:, col], minlength=codebook_size)
+                active = np.flatnonzero(counts > 0)
+                if active.size == 0:
+                    chosen = np.zeros(k, dtype=np.int64)
+                else:
+                    ranked = active[np.argsort(-counts[active])]
+                    chosen = ranked[:k]
+                    if chosen.size < k:
+                        chosen = np.pad(chosen, (0, k - chosen.size), mode="edge")
+                picks.extend(chosen.tolist())
+            return np.asarray(picks, dtype=np.int64)
         raise ValueError(f"Unsupported compact mode: {compact_mode}")
 
     raise ValueError(f"Unsupported code entry rank: {arr.ndim}")
@@ -105,15 +120,21 @@ def _build_audio_vectors(
             compact_mode=compact_mode,
         )
 
+        repeats = codes.shape[0] // num_layers
+
         parts = []
-        for layer_idx, code_id in enumerate(codes.tolist()):
+        for layer_idx in range(num_layers):
             table = rvq_embeddings[layer_idx]
-            if code_id < 0 or code_id >= table.shape[0]:
-                raise ValueError(
-                    f"Code {code_id} out of range for layer {layer_idx} "
-                    f"(size {table.shape[0]})"
-                )
-            parts.append(table[code_id].numpy())
+            start = layer_idx * repeats
+            end = (layer_idx + 1) * repeats
+            layer_codes = codes[start:end].tolist()
+            for code_id in layer_codes:
+                if code_id < 0 or code_id >= table.shape[0]:
+                    raise ValueError(
+                        f"Code {code_id} out of range for layer {layer_idx} "
+                        f"(size {table.shape[0]})"
+                    )
+                parts.append(table[code_id].numpy())
 
         vectors[audio_key] = np.concatenate(parts, axis=0)
 
@@ -238,7 +259,7 @@ def main():
         "--compact_window_codes",
         type=str,
         default="vote",
-        choices=["vote", "first"],
+        choices=["vote", "first", "top2", "top3"],
         help="How to compact [num_windows, num_codebooks] entries in id_map",
     )
     parser.add_argument("--text_model", type=str, default="sentence-transformers/all-MiniLM-L6-v2")
