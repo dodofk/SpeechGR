@@ -582,21 +582,27 @@ If another agent starts implementing tomorrow, the first five concrete actions s
 - Added `speechgr/encoders/mimi/` with a minimal `MimiEncoder` scaffold that supports injected dummy tokenizers for local smoke tests and lazy external loading for real Mimi checkpoints.
 - Registered the `mimi` encoder and added SLUE-SQA5 Mimi config scaffolding in `configs/data/slue_sqa5_mimi.yaml` and `configs/prepare/slue_sqa5_mimi.yaml`.
 - Added a CPU-only smoke test covering Mimi registry wiring, audio encoding, cache writing, and cache loading.
-- Standardized the default local Mimi checkpoint convention to `checkpoints/mimi` and added an explicit `codebook_size` config so Mimi retrieval defaults derive `discrete_code_num` and `special_token` from the codebook setting instead of hardcoding `2048` in multiple places.
+- Switched the Mimi default source to the Hugging Face model id `kyutai/mimi` while keeping `MIMI_MODEL_NAME_OR_PATH` and config overrides available for local checkpoints.
+- Tightened the Mimi HF loader path to use `AutoFeatureExtractor` plus `MimiModel` when available, with `AutoModel` as a compatibility fallback for older `transformers` installs.
+- Added an explicit `codebook_size` config so Mimi retrieval defaults derive `discrete_code_num` and `special_token` from the configured codebook setting instead of hardcoding `2048` in multiple places, and now also resolve `special_token` correctly when only `discrete_code_num` is set.
+- Added runtime validation that rejects discrete configs where `special_token` collides with the valid Mimi/codebook id range.
 - Added an optional `random_text` discrete-input embedding init path for T5-based Mimi retrieval, implemented with a dedicated encoder-side embedding table initialized from the pretrained text embedding statistics while leaving decoder/output embeddings unchanged.
-- Added a practical CPU-friendly retrieval smoke runner at `scripts/test/smoke_test_mimi_retrieval.py` that materializes tiny synthetic Mimi caches plus a tiny local T5 bundle, trains for a few epochs, runs validation, and writes artifacts to `outputs/smoke/mimi_retrieval/`.
+- Updated the CPU-friendly retrieval smoke runner at `scripts/test/smoke_test_mimi_retrieval.py` so its synthetic Mimi setup derives `special_token` and `discrete_vocab_size` from `codebook_size`, matching the runtime resolution path.
+- Fixed constrained decoding in the smoke/inference path so valid terminal DocIDs can emit `eos` instead of failing with an empty allowed-token set.
 - Kicked off Stage 2 with `speechgr/docid/builder.py` and `scripts/build_docids.py`, including deterministic `cluster -> leaf1 -> leaf2` DocID assignment, `docid_map.json`, `cluster_members.json`, `valid_paths.json`, and basic collision diagnostics.
+- Hardened the Stage 2 DocID contract by rejecting duplicate `doc_ids` up front and exporting `build_and_write_docids` as part of the public `speechgr.docid` API.
 
-### Verified Smoke Command
+### Verified Checks
 
-- `/Users/dodofk/miniconda3/envs/miniasr/bin/python scripts/test/smoke_test_mimi_retrieval.py --output-root outputs/smoke/mimi_retrieval`
+- `.venv/bin/python -m pytest tests/encoders/test_mimi_encoder.py tests/docid/test_builder.py tests/cli/test_retrieval_config_resolution.py tests/test_restrict_decode_vocab.py`
+- `.venv/bin/python scripts/test/smoke_test_mimi_retrieval.py --output-root outputs/smoke/mimi_retrieval_maint --epochs 1`
 
 ## Implementation Notes / Open Issues
 
-- The default local Mimi checkpoint convention is now `checkpoints/mimi`, but the exact external Mimi dependency layout inside that directory still is not pinned in-repo beyond the current Hugging Face-style `AutoProcessor` / `AutoModel` loader assumption.
-- Mimi retrieval now resolves `discrete_code_num` and `special_token` from `codebook_size` when those fields are omitted, but we still need to confirm the final production Mimi vocabulary size and whether multi-codebook outputs should be flattened, offset, or packed differently for retrieval.
+- Mimi now defaults to `kyutai/mimi`, but we still need one real end-to-end precompute run against the hosted checkpoint in this repo environment to confirm there are no upstream API drifts beyond the local unit/smoke coverage.
+- Mimi retrieval now resolves `discrete_code_num` and `special_token` from `codebook_size` or an explicit `discrete_code_num` when those fields are omitted, but we still need to confirm the final production Mimi vocabulary size and whether multi-codebook outputs should be flattened, offset, or packed differently for retrieval.
 - The new data config records the plan assumptions for `30s` passages, `15s` stride, and `3-8s` query spans, but the current retrieval/precompute pipeline does not yet materialize those span boundaries from raw SLUE audio.
-- The Stage 2 DocID builder is intentionally a deterministic scaffold. It already emits the right artifact contract, but it still needs a real passage-embedding extractor and a stronger clustering quality report before it should be treated as an experiment-ready semantic indexer.
+- The Stage 2 DocID builder is intentionally a deterministic scaffold. It now enforces unique document ids and emits the expected artifact contract, but it still needs a real passage-embedding extractor and a stronger clustering quality report before it should be treated as an experiment-ready semantic indexer.
 
 ## Open Questions
 

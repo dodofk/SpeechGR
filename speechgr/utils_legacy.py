@@ -47,7 +47,7 @@ class RestrictDecodeVocab:
                     break
                 
             if node is not None:
-                valid_tokens = list(node.children.keys())
+                valid_tokens = list(node.children.keys()) or [self.tokenizer.eos_token_id]
             else:
                 valid_tokens = [self.tokenizer.eos_token_id]
                 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Any, Dict, Iterable, Mapping, Optional
 
@@ -13,7 +14,12 @@ from omegaconf import DictConfig
 from speechgr.encoders.base import ModalityEncoder
 
 
-DEFAULT_MIMI_CHECKPOINT_PATH = "checkpoints/mimi"
+DEFAULT_MIMI_MODEL_NAME_OR_PATH = "kyutai/mimi"
+DEFAULT_MIMI_CHECKPOINT_PATH = DEFAULT_MIMI_MODEL_NAME_OR_PATH
+
+
+def _default_mimi_model_name_or_path() -> str:
+    return os.environ.get("MIMI_MODEL_NAME_OR_PATH", DEFAULT_MIMI_MODEL_NAME_OR_PATH)
 
 
 class _TransformersMimiTokenizer:
@@ -25,15 +31,24 @@ class _TransformersMimiTokenizer:
     """
 
     def __init__(self, model_name_or_path: str, device: torch.device) -> None:
-        from transformers import AutoModel, AutoProcessor
+        from transformers import AutoFeatureExtractor
+
+        try:
+            from transformers import MimiModel
+        except ImportError:  # pragma: no cover - compatibility fallback
+            MimiModel = None
+            from transformers import AutoModel
 
         self.device = device
-        self.processor = AutoProcessor.from_pretrained(model_name_or_path)
-        self.model = AutoModel.from_pretrained(model_name_or_path)
+        self.feature_extractor = AutoFeatureExtractor.from_pretrained(model_name_or_path)
+        if MimiModel is not None:
+            self.model = MimiModel.from_pretrained(model_name_or_path)
+        else:  # pragma: no cover - exercised only on older transformers versions
+            self.model = AutoModel.from_pretrained(model_name_or_path)
         self.model = self.model.to(device).eval()
 
     def __call__(self, waveform: torch.Tensor, *, sampling_rate: int) -> Any:
-        inputs = self.processor(
+        inputs = self.feature_extractor(
             raw_audio=waveform.squeeze(0).cpu().numpy(),
             sampling_rate=sampling_rate,
             return_tensors="pt",
@@ -44,8 +59,9 @@ class _TransformersMimiTokenizer:
         }
 
         with torch.no_grad():
-            if hasattr(self.model, "encode"):
-                return self.model.encode(**inputs)
+            input_values = inputs.get("input_values")
+            if hasattr(self.model, "encode") and input_values is not None:
+                return self.model.encode(input_values)
             return self.model(**inputs)
 
 
@@ -60,7 +76,7 @@ class MimiEncoder(ModalityEncoder):
     def __init__(
         self,
         *,
-        model_name_or_path: Optional[str] = DEFAULT_MIMI_CHECKPOINT_PATH,
+        model_name_or_path: Optional[str] = None,
         target_sample_rate: int = 24_000,
         device: str = "cpu",
         audio_field: str = "audio",
@@ -70,7 +86,7 @@ class MimiEncoder(ModalityEncoder):
     ) -> None:
         super().__init__(name="mimi", cfg=cfg)
 
-        self.model_name_or_path = model_name_or_path or DEFAULT_MIMI_CHECKPOINT_PATH
+        self.model_name_or_path = model_name_or_path or _default_mimi_model_name_or_path()
         self.target_sample_rate = int(target_sample_rate)
         self.device = torch.device(device)
         self.audio_field = audio_field
@@ -211,4 +227,8 @@ class MimiEncoder(ModalityEncoder):
         return tensor
 
 
-__all__ = ["DEFAULT_MIMI_CHECKPOINT_PATH", "MimiEncoder"]
+__all__ = [
+    "DEFAULT_MIMI_CHECKPOINT_PATH",
+    "DEFAULT_MIMI_MODEL_NAME_OR_PATH",
+    "MimiEncoder",
+]

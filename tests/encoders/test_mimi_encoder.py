@@ -1,7 +1,10 @@
 import numpy as np
 import torch
 
-from speechgr.encoders.mimi.encoder import MimiEncoder
+from speechgr.encoders.mimi.encoder import (
+    DEFAULT_MIMI_MODEL_NAME_OR_PATH,
+    MimiEncoder,
+)
 from speechgr.encoders.registry import get_encoder_class, list_encoders
 
 
@@ -16,6 +19,22 @@ class DummyMimiTokenizer:
 def test_mimi_encoder_registration():
     assert get_encoder_class("mimi") is MimiEncoder
     assert list_encoders()["mimi"] is MimiEncoder
+
+
+def test_mimi_encoder_defaults_to_hf_model_id(monkeypatch):
+    monkeypatch.delenv("MIMI_MODEL_NAME_OR_PATH", raising=False)
+
+    encoder = MimiEncoder(tokenizer=DummyMimiTokenizer())
+
+    assert encoder.model_name_or_path == DEFAULT_MIMI_MODEL_NAME_OR_PATH
+
+
+def test_mimi_encoder_allows_env_override(monkeypatch):
+    monkeypatch.setenv("MIMI_MODEL_NAME_OR_PATH", "/tmp/local-mimi")
+
+    encoder = MimiEncoder(tokenizer=DummyMimiTokenizer())
+
+    assert encoder.model_name_or_path == "/tmp/local-mimi"
 
 
 def test_mimi_encoder_encode_and_cache_roundtrip(tmp_path):

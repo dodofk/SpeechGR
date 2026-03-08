@@ -78,6 +78,18 @@ class HierarchicalDocIdBuilder:
         if not doc_id_list:
             raise ValueError("HierarchicalDocIdBuilder requires at least one document")
 
+        seen_doc_ids = set()
+        duplicate_doc_ids = []
+        for doc_id in doc_id_list:
+            if doc_id in seen_doc_ids and doc_id not in duplicate_doc_ids:
+                duplicate_doc_ids.append(doc_id)
+            seen_doc_ids.add(doc_id)
+        if duplicate_doc_ids:
+            duplicates = ", ".join(sorted(duplicate_doc_ids))
+            raise ValueError(
+                f"HierarchicalDocIdBuilder requires unique doc_ids; duplicates: {duplicates}"
+            )
+
         matrix = np.asarray(embeddings, dtype=np.float32)
         if matrix.ndim != 2:
             raise ValueError(f"Expected a 2D embedding matrix, got shape {matrix.shape}")

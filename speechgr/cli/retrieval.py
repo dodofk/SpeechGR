@@ -152,6 +152,8 @@ def _resolve_discrete_code_num(data_cfg: DataConfig) -> Optional[int]:
 def _resolve_special_token(data_cfg: DataConfig) -> Optional[int]:
     if data_cfg.special_token is not None:
         return int(data_cfg.special_token)
+    if data_cfg.discrete_code_num is not None:
+        return int(data_cfg.discrete_code_num)
     if data_cfg.codebook_size is not None:
         return int(data_cfg.codebook_size)
     return None
@@ -164,6 +166,26 @@ def _resolve_discrete_vocab_size(data_cfg: DataConfig) -> Optional[int]:
         return None
     candidates = [value for value in (codebook_size, special_token) if value is not None]
     return max(candidates) + 1
+
+
+def _validate_discrete_settings(data_cfg: DataConfig) -> None:
+    if data_cfg.discrete_code_num is None and data_cfg.special_token is None:
+        return
+
+    if data_cfg.discrete_code_num is not None and int(data_cfg.discrete_code_num) <= 0:
+        raise ValueError("discrete_code_num must be positive")
+    if data_cfg.special_token is not None and int(data_cfg.special_token) < 0:
+        raise ValueError("special_token must be non-negative")
+
+    if (
+        data_cfg.discrete_code_num is not None
+        and data_cfg.special_token is not None
+        and int(data_cfg.special_token) < int(data_cfg.discrete_code_num)
+    ):
+        raise ValueError(
+            "special_token must be greater than or equal to discrete_code_num so the "
+            "prefix token does not collide with a valid discrete code"
+        )
 
 
 def _load_model(model_cfg: ModelConfig, data_cfg: Optional[DataConfig] = None):
@@ -334,6 +356,7 @@ def run(cfg: DictConfig) -> None:
 
     data_cfg.discrete_code_num = _resolve_discrete_code_num(data_cfg)
     data_cfg.special_token = _resolve_special_token(data_cfg)
+    _validate_discrete_settings(data_cfg)
 
     if data_cfg.modality.lower() == "discrete_precomputed":
         logger.info(

@@ -3,7 +3,7 @@ output_root: outputs/slue_sqa5_mimi
 encoder:
   name: mimi
   params:
-    model_name_or_path: ${oc.env:MIMI_MODEL_NAME_OR_PATH,checkpoints/mimi}
+    model_name_or_path: ${oc.env:MIMI_MODEL_NAME_OR_PATH,kyutai/mimi}
     device: cpu
     target_sample_rate: 24000
   question:

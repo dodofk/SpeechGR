@@ -97,6 +97,7 @@ def _build_tiny_tokenizer(model_dir: Path) -> None:
 
 
 def _build_tiny_model(model_dir: Path) -> None:
+    codebook_size = 8
     _build_tiny_tokenizer(model_dir)
     config = T5Config(
         vocab_size=6,
@@ -112,7 +113,7 @@ def _build_tiny_model(model_dir: Path) -> None:
     )
     model = DiscreteInputT5(
         config,
-        discrete_vocab_size=9,
+        discrete_vocab_size=codebook_size + 1,
         discrete_input_embedding_init="random_text",
     )
     model.initialize_discrete_input_embeddings("random_text")
@@ -200,6 +201,9 @@ def main() -> None:
     output_root = Path(args.output_root).resolve()
     output_root.mkdir(parents=True, exist_ok=True)
     assets = _materialize_smoke_assets(output_root)
+    codebook_size = 8
+    special_token = codebook_size
+    discrete_vocab_size = special_token + 1
 
     tokenizer = AutoTokenizer.from_pretrained(assets["model_dir"])
     train_dataset = DiscreteUnitDataset(
@@ -212,7 +216,7 @@ def main() -> None:
         corpus_max_length=8,
         corpus_chunk_size=8,
         corpus_chunk_stride=8,
-        special_token=8,
+        special_token=special_token,
     )
     valid_dataset = DiscreteUnitDataset(
         split="validation",
@@ -224,12 +228,12 @@ def main() -> None:
         corpus_max_length=8,
         corpus_chunk_size=8,
         corpus_chunk_stride=8,
-        special_token=8,
+        special_token=special_token,
     )
 
     model = DiscreteInputT5.from_pretrained(
         assets["model_dir"],
-        discrete_vocab_size=9,
+        discrete_vocab_size=discrete_vocab_size,
         discrete_input_embedding_init="random_text",
     )
     model.initialize_discrete_input_embeddings("random_text")
@@ -277,6 +281,9 @@ def main() -> None:
         "artifacts": assets,
         "output_root": str(output_root),
         "epochs": args.epochs,
+        "codebook_size": codebook_size,
+        "special_token": special_token,
+        "discrete_vocab_size": discrete_vocab_size,
     }
     summary_path = output_root / "smoke_summary.json"
     summary_path.write_text(json.dumps(summary, indent=2))

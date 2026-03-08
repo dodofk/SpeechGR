@@ -35,8 +35,24 @@ def test_hierarchical_docid_builder_writes_expected_artifacts(tmp_path):
 
     docid_map = json.loads((tmp_path / "docid_map.json").read_text())
     cluster_members = json.loads((tmp_path / "cluster_members.json").read_text())
+    valid_paths = json.loads((tmp_path / "valid_paths.json").read_text())
     diagnostics = json.loads((tmp_path / "docid_diagnostics.json").read_text())
 
     assert docid_map["doc-a"]["tokens"][0].startswith("<cl_")
     assert diagnostics["diagnostics"]["num_clusters"] == 2
+    assert len(valid_paths) == 4
     assert sum(len(members) for members in cluster_members.values()) == 4
+
+
+def test_hierarchical_docid_builder_rejects_duplicate_doc_ids():
+    builder = HierarchicalDocIdBuilder()
+
+    try:
+        builder.build(
+            ["doc-a", "doc-a"],
+            np.array([[0.0, 1.0], [1.0, 0.0]], dtype=np.float32),
+        )
+    except ValueError as exc:
+        assert "duplicate" in str(exc).lower()
+    else:  # pragma: no cover - keeps failure message precise
+        raise AssertionError("Expected duplicate doc_ids to raise ValueError")
