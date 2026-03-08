@@ -2,8 +2,9 @@ dataset_path: ${oc.env:SLUE_SQA5_MIMI_CSV,outputs/slue_sqa5_mimi/csv}
 precompute_root: ${oc.env:SLUE_SQA5_MIMI_CACHE,outputs/slue_sqa5_mimi/precomputed}
 modality: discrete_precomputed
 encoder_name: mimi
-special_token: 2048
-discrete_code_num: 2048
+codebook_size: ${oc.env:MIMI_CODEBOOK_SIZE,2048}
+special_token: null
+discrete_code_num: null
 train_atomic: false
 include_corpus: true
 include_corpus_splits:

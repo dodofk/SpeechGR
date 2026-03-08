@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import List
+from typing import TYPE_CHECKING, List
 
 import torch
 from transformers import DataCollatorWithPadding, PreTrainedTokenizerBase
 
-from speechgr.encoders import TextEncoder
+if TYPE_CHECKING:
+    from speechgr.encoders import TextEncoder
 
 
 @dataclass
@@ -155,7 +156,7 @@ class WhisperIndexingCollator(DataCollatorWithPadding):
 class TextIndexingCollator:
     """Collate text-encoded inputs using a shared tokenizer."""
 
-    text_encoder: TextEncoder
+    text_encoder: "TextEncoder"
     label_tokenizer: PreTrainedTokenizerBase
     train_atomic: bool = False
 

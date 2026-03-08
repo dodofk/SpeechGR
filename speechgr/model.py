@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -49,6 +51,71 @@ class ContinousEmbT5(T5ForConditionalGeneration):
             labels=labels,
             **kwargs,
         )
+
+
+class DiscreteInputT5(T5ForConditionalGeneration):
+    """T5 variant with a dedicated encoder-side embedding table for discrete inputs."""
+
+    def __init__(
+        self,
+        config,
+        discrete_vocab_size: int,
+        discrete_input_embedding_init: str = "random_text",
+        **kwargs,
+    ):
+        super().__init__(config, **kwargs)
+        self.discrete_vocab_size = int(discrete_vocab_size)
+        self.discrete_input_embedding_init = discrete_input_embedding_init
+        self.discrete_input_embeddings = nn.Embedding(
+            self.discrete_vocab_size,
+            self.shared.weight.shape[-1],
+        )
+        self._reset_discrete_input_embeddings()
+
+    def _reset_discrete_input_embeddings(self) -> None:
+        factor = getattr(self.config, "initializer_factor", 1.0)
+        nn.init.normal_(self.discrete_input_embeddings.weight, mean=0.0, std=factor)
+
+    def initialize_discrete_input_embeddings(self, strategy: str | None = None) -> None:
+        init_strategy = strategy or self.discrete_input_embedding_init
+        if init_strategy != "random_text":
+            raise ValueError(
+                "Unsupported discrete_input_embedding_init "
+                f"'{init_strategy}'. Expected 'random_text'."
+            )
+
+        with torch.no_grad():
+            reference = self.shared.weight.detach()
+            mean = float(reference.mean().item())
+            std = float(reference.std(unbiased=False).item())
+            if std == 0.0:
+                std = float(getattr(self.config, "initializer_factor", 1.0))
+            self.discrete_input_embeddings.weight.normal_(mean=mean, std=std)
+
+    def _embed_discrete_inputs(self, input_ids: torch.Tensor) -> torch.Tensor:
+        if input_ids.numel() == 0:
+            return self.discrete_input_embeddings(input_ids)
+
+        min_id = int(input_ids.min().item())
+        max_id = int(input_ids.max().item())
+        if min_id < 0 or max_id >= self.discrete_vocab_size:
+            raise ValueError(
+                "Discrete input ids must stay within the configured Mimi/codebook "
+                f"range [0, {self.discrete_vocab_size - 1}], got [{min_id}, {max_id}]"
+            )
+        return self.discrete_input_embeddings(input_ids)
+
+    def forward(self, input_ids=None, inputs_embeds=None, **kwargs):
+        if input_ids is not None and inputs_embeds is None:
+            inputs_embeds = self._embed_discrete_inputs(input_ids)
+            input_ids = None
+        return super().forward(input_ids=input_ids, inputs_embeds=inputs_embeds, **kwargs)
+
+    def generate(self, input_ids=None, inputs_embeds=None, **kwargs):
+        if input_ids is not None and inputs_embeds is None:
+            inputs_embeds = self._embed_discrete_inputs(input_ids)
+            input_ids = None
+        return super().generate(input_ids=input_ids, inputs_embeds=inputs_embeds, **kwargs)
 
 
 # ---------- latent‑query module ----------

@@ -1,12 +1,8 @@
 """Modality encoders for SpeechGR."""
 
+from importlib import import_module
+
 from .base import ModalityEncoder
-from .discrete.encoder import DiscreteCodeEncoder
-from .hubert.encoder import HuBERTKMeansEncoder
-from .mimi.encoder import MimiEncoder
-from .text.encoder import TextEncoder
-from .wavtokenizer.encoder import WavTokenizerEncoder
-from .whisper.encoder import WhisperEncoder
 
 __all__ = [
     "ModalityEncoder",
@@ -17,3 +13,25 @@ __all__ = [
     "WavTokenizerEncoder",
     "WhisperEncoder",
 ]
+
+_LAZY_IMPORTS = {
+    "DiscreteCodeEncoder": ("speechgr.encoders.discrete.encoder", "DiscreteCodeEncoder"),
+    "HuBERTKMeansEncoder": ("speechgr.encoders.hubert.encoder", "HuBERTKMeansEncoder"),
+    "MimiEncoder": ("speechgr.encoders.mimi.encoder", "MimiEncoder"),
+    "TextEncoder": ("speechgr.encoders.text.encoder", "TextEncoder"),
+    "WavTokenizerEncoder": (
+        "speechgr.encoders.wavtokenizer.encoder",
+        "WavTokenizerEncoder",
+    ),
+    "WhisperEncoder": ("speechgr.encoders.whisper.encoder", "WhisperEncoder"),
+}
+
+
+def __getattr__(name: str):
+    if name in _LAZY_IMPORTS:
+        module_name, attr_name = _LAZY_IMPORTS[name]
+        module = import_module(module_name)
+        value = getattr(module, attr_name)
+        globals()[name] = value
+        return value
+    raise AttributeError(f"module 'speechgr.encoders' has no attribute '{name}'")

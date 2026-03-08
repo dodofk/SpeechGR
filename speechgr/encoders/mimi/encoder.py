@@ -13,6 +13,9 @@ from omegaconf import DictConfig
 from speechgr.encoders.base import ModalityEncoder
 
 
+DEFAULT_MIMI_CHECKPOINT_PATH = "checkpoints/mimi"
+
+
 class _TransformersMimiTokenizer:
     """Lazy Hugging Face-backed Mimi adapter.
 
@@ -57,7 +60,7 @@ class MimiEncoder(ModalityEncoder):
     def __init__(
         self,
         *,
-        model_name_or_path: Optional[str] = None,
+        model_name_or_path: Optional[str] = DEFAULT_MIMI_CHECKPOINT_PATH,
         target_sample_rate: int = 24_000,
         device: str = "cpu",
         audio_field: str = "audio",
@@ -67,7 +70,7 @@ class MimiEncoder(ModalityEncoder):
     ) -> None:
         super().__init__(name="mimi", cfg=cfg)
 
-        self.model_name_or_path = model_name_or_path or None
+        self.model_name_or_path = model_name_or_path or DEFAULT_MIMI_CHECKPOINT_PATH
         self.target_sample_rate = int(target_sample_rate)
         self.device = torch.device(device)
         self.audio_field = audio_field
@@ -126,13 +129,6 @@ class MimiEncoder(ModalityEncoder):
     def _get_tokenizer(self):
         if self._tokenizer is not None:
             return self._tokenizer
-        if self.model_name_or_path is None:
-            raise RuntimeError(
-                "MimiEncoder requires either an injected tokenizer for tests or a "
-                "configured Mimi checkpoint path. TODO: set model_name_or_path once "
-                "the repository pins the external Mimi dependency and weights."
-            )
-
         self._tokenizer = _TransformersMimiTokenizer(
             model_name_or_path=self.model_name_or_path,
             device=self.device,
@@ -215,4 +211,4 @@ class MimiEncoder(ModalityEncoder):
         return tensor
 
 
-__all__ = ["MimiEncoder"]
+__all__ = ["DEFAULT_MIMI_CHECKPOINT_PATH", "MimiEncoder"]

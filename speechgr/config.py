@@ -41,8 +41,9 @@ class DataConfig:
     dataset_path: str
     code_path: Optional[str] = None
     lookup_file_name: Optional[str] = None
-    special_token: int = 32000
-    discrete_code_num: int = 500
+    special_token: Optional[int] = 32000
+    discrete_code_num: Optional[int] = 500
+    codebook_size: Optional[int] = None
     train_atomic: bool = False
     atomic_offset: Optional[int] = None
     pq_filename: Optional[str] = None
@@ -74,6 +75,7 @@ class ModelConfig:
     model_name: str
     model_path: Optional[str] = None
     train_continuous_embedding: bool = False
+    discrete_input_embedding_init: str = "shared_text"
     ssl_feat_dim: int = 1024
     downsample_factor: int = 2
     hidden_dim: int = 768

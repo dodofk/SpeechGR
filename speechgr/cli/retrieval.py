@@ -24,7 +24,7 @@ from speechgr.data import (
     DiscreteUnitDataset,
 )
 from speechgr.encoders import TextEncoder
-from speechgr.model import ContinousEmbT5
+from speechgr.model import ContinousEmbT5, DiscreteInputT5
 from speechgr import (
     DataConfig,
     ModelConfig,
@@ -117,6 +117,11 @@ def _maybe_init_wandb(
     run_notes: str,
     full_cfg: Optional[DictConfig] = None,
 ) -> None:
+    report_to = training_args.report_to or []
+    if isinstance(report_to, str):
+        report_to = [report_to]
+    if "wandb" not in report_to:
+        return
     if training_args.local_rank not in (0, -1):
         return
     wandb.login()
@@ -136,7 +141,32 @@ def _maybe_init_wandb(
             logger.warning("Failed to log Hydra config to WandB: %s", exc)
 
 
-def _load_model(model_cfg: ModelConfig):
+def _resolve_discrete_code_num(data_cfg: DataConfig) -> Optional[int]:
+    if data_cfg.discrete_code_num is not None:
+        return int(data_cfg.discrete_code_num)
+    if data_cfg.codebook_size is not None:
+        return int(data_cfg.codebook_size)
+    return None
+
+
+def _resolve_special_token(data_cfg: DataConfig) -> Optional[int]:
+    if data_cfg.special_token is not None:
+        return int(data_cfg.special_token)
+    if data_cfg.codebook_size is not None:
+        return int(data_cfg.codebook_size)
+    return None
+
+
+def _resolve_discrete_vocab_size(data_cfg: DataConfig) -> Optional[int]:
+    codebook_size = _resolve_discrete_code_num(data_cfg)
+    special_token = _resolve_special_token(data_cfg)
+    if codebook_size is None and special_token is None:
+        return None
+    candidates = [value for value in (codebook_size, special_token) if value is not None]
+    return max(candidates) + 1
+
+
+def _load_model(model_cfg: ModelConfig, data_cfg: Optional[DataConfig] = None):
     if model_cfg.train_continuous_embedding and model_cfg.model_path:
         return ContinousEmbT5.from_pretrained(
             model_cfg.model_path,
@@ -144,6 +174,41 @@ def _load_model(model_cfg: ModelConfig):
             ssl_feat_dim=model_cfg.ssl_feat_dim,
             downsample_factor=model_cfg.downsample_factor,
         )
+
+    init_strategy = model_cfg.discrete_input_embedding_init.strip().lower()
+    if init_strategy != "shared_text":
+        if data_cfg is None or data_cfg.modality.lower() != "discrete_precomputed":
+            raise ValueError(
+                "discrete_input_embedding_init only applies to discrete_precomputed runs"
+            )
+        if init_strategy != "random_text":
+            raise ValueError(
+                "Unsupported discrete_input_embedding_init "
+                f"'{model_cfg.discrete_input_embedding_init}'. Expected 'shared_text' or 'random_text'."
+            )
+
+        discrete_vocab_size = _resolve_discrete_vocab_size(data_cfg)
+        if discrete_vocab_size is None:
+            raise ValueError(
+                "codebook_size or discrete_code_num must be configured when using "
+                "random discrete input embedding initialization"
+            )
+
+        if "bart" in model_cfg.model_name or "mt5" in model_cfg.model_name:
+            raise ValueError(
+                "random discrete input embedding initialization is currently only "
+                "supported for T5 checkpoints"
+            )
+
+        source = model_cfg.model_path or model_cfg.model_name
+        model = DiscreteInputT5.from_pretrained(
+            source,
+            cache_dir="cache",
+            discrete_vocab_size=discrete_vocab_size,
+            discrete_input_embedding_init=init_strategy,
+        )
+        model.initialize_discrete_input_embeddings(init_strategy)
+        return model
 
     if "mt5" in model_cfg.model_name:
         source = model_cfg.model_path or model_cfg.model_name
@@ -267,7 +332,18 @@ def run(cfg: DictConfig) -> None:
         model_cfg.model_name, cache_dir="cache"
     )
 
-    model = _load_model(model_cfg)
+    data_cfg.discrete_code_num = _resolve_discrete_code_num(data_cfg)
+    data_cfg.special_token = _resolve_special_token(data_cfg)
+
+    if data_cfg.modality.lower() == "discrete_precomputed":
+        logger.info(
+            "Resolved discrete_precomputed Mimi/codebook settings: codebook_size=%s discrete_code_num=%s special_token=%s",
+            data_cfg.codebook_size,
+            data_cfg.discrete_code_num,
+            data_cfg.special_token,
+        )
+
+    model = _load_model(model_cfg, data_cfg)
 
     modality = data_cfg.modality.lower()
     shared_text_encoder: Optional[TextEncoder] = None
