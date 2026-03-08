@@ -6,6 +6,7 @@ from typing import Dict, Type
 
 from speechgr.encoders.discrete.encoder import DiscreteCodeEncoder
 from speechgr.encoders.hubert.encoder import HuBERTKMeansEncoder
+from speechgr.encoders.mimi.encoder import MimiEncoder
 from speechgr.encoders.rqvae.encoder import RQVAEEncoder
 from speechgr.encoders.text.encoder import TextEncoder
 from speechgr.encoders.wavtokenizer.encoder import WavTokenizerEncoder
@@ -14,6 +15,7 @@ from speechgr.encoders.whisper.encoder import WhisperEncoder
 _REGISTRY: Dict[str, Type] = {
     "discrete": DiscreteCodeEncoder,
     "hubert_kmeans": HuBERTKMeansEncoder,
+    "mimi": MimiEncoder,
     "text": TextEncoder,
     "rqvae": RQVAEEncoder,
     "wavtokenizer": WavTokenizerEncoder,

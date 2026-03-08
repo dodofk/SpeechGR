@@ -58,6 +58,10 @@ class DataConfig:
     precompute_root: Optional[str] = None
     encoder_name: Optional[str] = None
     include_corpus_splits: Optional[Iterable[str]] = None
+    corpus_passage_seconds: Optional[int] = None
+    corpus_stride_seconds: Optional[int] = None
+    query_min_span_seconds: Optional[int] = None
+    query_max_span_seconds: Optional[int] = None
     corpus_chunk_size: Optional[int] = None
     corpus_chunk_stride: Optional[int] = None
     corpus_min_tokens: int = 1

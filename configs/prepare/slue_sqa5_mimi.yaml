@@ -1,0 +1,22 @@
+output_root: outputs/slue_sqa5_mimi
+
+encoder:
+  name: mimi
+  params:
+    model_name_or_path: ${oc.env:MIMI_MODEL_NAME_OR_PATH,}
+    device: cpu
+    target_sample_rate: 24000
+  question:
+    params:
+      model_name_or_path: ${encoder.params.model_name_or_path}
+      device: ${encoder.params.device}
+      target_sample_rate: ${encoder.params.target_sample_rate}
+      audio_field: question_audio
+      sample_id_field: question_id
+  document:
+    params:
+      model_name_or_path: ${encoder.params.model_name_or_path}
+      device: ${encoder.params.device}
+      target_sample_rate: ${encoder.params.target_sample_rate}
+      audio_field: document_audio
+      sample_id_field: document_id
