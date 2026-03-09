@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import io
 import os
 from pathlib import Path
 from typing import Any, Dict, Iterable, Mapping, Optional
 
 import numpy as np
+import soundfile as sf
 import torch
 import torch.nn.functional as F
 from omegaconf import DictConfig
@@ -40,11 +42,20 @@ class _TransformersMimiTokenizer:
             from transformers import AutoModel
 
         self.device = device
-        self.feature_extractor = AutoFeatureExtractor.from_pretrained(model_name_or_path)
+        self.feature_extractor = AutoFeatureExtractor.from_pretrained(
+            model_name_or_path,
+            trust_remote_code=True,
+        )
         if MimiModel is not None:
-            self.model = MimiModel.from_pretrained(model_name_or_path)
+            self.model = MimiModel.from_pretrained(
+                model_name_or_path,
+                trust_remote_code=True,
+            )
         else:  # pragma: no cover - exercised only on older transformers versions
-            self.model = AutoModel.from_pretrained(model_name_or_path)
+            self.model = AutoModel.from_pretrained(
+                model_name_or_path,
+                trust_remote_code=True,
+            )
         self.model = self.model.to(device).eval()
 
     def __call__(self, waveform: torch.Tensor, *, sampling_rate: int) -> Any:
@@ -119,8 +130,7 @@ class MimiEncoder(ModalityEncoder):
                 )
 
             audio_entry = sample[self.audio_field]
-            audio = audio_entry["array"]
-            sampling_rate = audio_entry["sampling_rate"]
+            audio, sampling_rate = self._extract_audio_payload(audio_entry)
 
             sample_id = sample.get(self.sample_id_field)
             if sample_id is None:
@@ -150,6 +160,26 @@ class MimiEncoder(ModalityEncoder):
             device=self.device,
         )
         return self._tokenizer
+
+    @staticmethod
+    def _extract_audio_payload(audio_entry: Any) -> tuple[np.ndarray, int]:
+        if isinstance(audio_entry, Mapping):
+            if "array" in audio_entry and "sampling_rate" in audio_entry:
+                return np.asarray(audio_entry["array"]), int(audio_entry["sampling_rate"])
+
+            if "bytes" in audio_entry and audio_entry["bytes"] is not None:
+                with io.BytesIO(audio_entry["bytes"]) as buffer:
+                    audio, sampling_rate = sf.read(buffer)
+                return np.asarray(audio), int(sampling_rate)
+
+            if "path" in audio_entry and audio_entry["path"]:
+                audio, sampling_rate = sf.read(audio_entry["path"])
+                return np.asarray(audio), int(sampling_rate)
+
+        raise ValueError(
+            "Unsupported audio payload. Expected mapping with "
+            "('array','sampling_rate') or ('bytes'|'path')."
+        )
 
     def _prepare_waveform(
         self, audio: np.ndarray | torch.Tensor, sampling_rate: int

@@ -21,7 +21,7 @@ dependencies = [
     "torch",
     "torchaudio",
     "tqdm",
-    "transformers==4.44.2",
+    "transformers>=4.57.0",
     "wandb",
     "einops",
     "torchcodec",
@@ -32,6 +32,7 @@ dependencies = [
 
 [project.optional-dependencies]
 whisper = ["soundfile", "torchaudio"]
+jax = ["jax", "flax", "optax"]
 dev = ["black", "isort", "pytest"]
 
 [build-system]
