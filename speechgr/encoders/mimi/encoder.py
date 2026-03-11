@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import io
+import logging
 import os
 from pathlib import Path
 from typing import Any, Dict, Iterable, Mapping, Optional
@@ -12,12 +13,15 @@ import soundfile as sf
 import torch
 import torch.nn.functional as F
 from omegaconf import DictConfig
+from tqdm.auto import tqdm
 
 from speechgr.encoders.base import ModalityEncoder
 
 
 DEFAULT_MIMI_MODEL_NAME_OR_PATH = "kyutai/mimi"
 DEFAULT_MIMI_CHECKPOINT_PATH = DEFAULT_MIMI_MODEL_NAME_OR_PATH
+
+logger = logging.getLogger(__name__)
 
 
 def _default_mimi_model_name_or_path() -> str:
@@ -154,7 +158,24 @@ class MimiEncoder(ModalityEncoder):
         samples: Iterable[Mapping[str, Any]],
     ) -> None:
         cache: Dict[str, Dict[str, torch.Tensor]] = {}
-        for sample in samples:
+        logger.info(
+            "Starting Mimi precompute split=%s output_dir=%s code_selection=%s",
+            dataset_split,
+            output_dir,
+            self.code_selection,
+        )
+        total = None
+        try:
+            total = len(samples)
+        except TypeError:
+            total = None
+
+        for sample in tqdm(
+            samples,
+            desc=f"mimi precompute:{dataset_split}",
+            total=total,
+            unit="sample",
+        ):
             if self.audio_field not in sample:
                 raise KeyError(
                     f"Expected audio field '{self.audio_field}' in dataset sample"
@@ -178,6 +199,12 @@ class MimiEncoder(ModalityEncoder):
         torch.save(cache, cache_path)
         self._loaded_cache = cache
         self._loaded_cache_key = (dataset_split, output_dir)
+        logger.info(
+            "Finished Mimi precompute split=%s samples=%d cache_path=%s",
+            dataset_split,
+            len(cache),
+            cache_path,
+        )
 
     def _load_cache(self, path: Path) -> Dict[str, Any]:
         loaded = torch.load(path, map_location="cpu")
@@ -186,9 +213,21 @@ class MimiEncoder(ModalityEncoder):
     def _get_tokenizer(self):
         if self._tokenizer is not None:
             return self._tokenizer
+        logger.info(
+            "Loading Mimi model name_or_path=%s device=%s code_selection=%s",
+            self.model_name_or_path,
+            self.device,
+            self.code_selection,
+        )
         self._tokenizer = _TransformersMimiTokenizer(
             model_name_or_path=self.model_name_or_path,
             device=self.device,
+        )
+        logger.info(
+            "Loaded Mimi model codebook_size=%s num_quantizers=%s num_semantic_quantizers=%s",
+            getattr(self._tokenizer, "codebook_size", "?"),
+            getattr(self._tokenizer, "num_quantizers", "?"),
+            getattr(self._tokenizer, "num_semantic_quantizers", "?"),
         )
         return self._tokenizer
 
