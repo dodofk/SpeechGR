@@ -4,33 +4,23 @@ This note captures the minimal server-side workflow for the current Mimi-first h
 
 ## 1. Prepare CSV + Mimi precompute
 
-The Mimi prepare config now defaults to a safer multi-pass path:
+The Mimi prepare config uses the safer multi-pass path:
 
 - `streaming: false`
 - `decode_audio: false`
 
-This means `prepare_slue` will use the non-streaming Hugging Face dataset path by default while still keeping audio decoding disabled. This is important because the current prepare pipeline scans the dataset multiple times: once to write split CSVs and again to precompute question and corpus caches. With a remote streaming dataset, those multiple passes can multiply network I/O and make the run slower rather than faster.
+This means `prepare_slue` uses the non-streaming Hugging Face dataset path while still keeping audio decoding disabled. This is important because the current prepare pipeline scans the dataset multiple times: once to write split CSVs and again to precompute question and corpus caches. Streaming in this multi-pass setup can multiply network I/O and make the run slower rather than faster.
 
 ```bash
 uv run python -m speechgr.cli.prepare_slue \
   --config-name slue_sqa5_mimi
 ```
 
-If you want the default safer path on the server, use:
+On the CUDA server, use:
 
 ```bash
 uv run python -m speechgr.cli.prepare_slue \
   --config-name slue_sqa5_mimi \
-  decode_audio=false \
-  encoder.params.device=cuda
-```
-
-Only enable streaming explicitly if you know you want it and can tolerate repeated remote scans:
-
-```bash
-uv run python -m speechgr.cli.prepare_slue \
-  --config-name slue_sqa5_mimi \
-  streaming=true \
   decode_audio=false \
   encoder.params.device=cuda
 ```
