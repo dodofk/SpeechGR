@@ -37,6 +37,7 @@ class DiscreteUnitDataset(SLUESQA5Dataset):
         codes_key: str = "codes",
         train_atomic: bool = False,
         atomic_offset: Optional[int] = None,
+        docid_map_path: Optional[str] = None,
         corpus_splits: Optional[Iterable[str]] = None,
         corpus_chunk_size: Optional[int] = None,
         corpus_chunk_stride: Optional[int] = None,
@@ -57,6 +58,7 @@ class DiscreteUnitDataset(SLUESQA5Dataset):
             corpus_splits=corpus_splits,
             train_atomic=train_atomic,
             atomic_offset=atomic_offset,
+            docid_map_path=docid_map_path,
         )
 
         cache_dir = Path(storage_root)
@@ -294,6 +296,7 @@ class SlueSQA5DatasetV2(DiscreteUnitDataset):
         include_corpus: bool = True,
         train_atomic: bool = False,
         atomic_offset: Optional[int] = None,
+        docid_map_path: Optional[str] = None,
         corpus_splits: Optional[Iterable[str]] = None,
         corpus_chunk_size: Optional[int] = None,
         corpus_chunk_stride: Optional[int] = None,
@@ -317,6 +320,7 @@ class SlueSQA5DatasetV2(DiscreteUnitDataset):
             corpus_max_length=corpus_max_length,
             train_atomic=train_atomic,
             atomic_offset=atomic_offset,
+            docid_map_path=docid_map_path,
             corpus_splits=corpus_splits,
             corpus_chunk_size=corpus_chunk_size,
             corpus_chunk_stride=corpus_chunk_stride,

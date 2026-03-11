@@ -36,12 +36,29 @@ class _TransformersMimiTokenizer:
         from transformers import AutoFeatureExtractor
 
         try:
+            from transformers import MimiConfig
             from transformers import MimiModel
         except ImportError:  # pragma: no cover - compatibility fallback
+            MimiConfig = None
             MimiModel = None
-            from transformers import AutoModel
+            from transformers import AutoConfig, AutoModel
 
         self.device = device
+        if MimiConfig is not None:
+            self.config = MimiConfig.from_pretrained(
+                model_name_or_path,
+                trust_remote_code=True,
+            )
+        else:  # pragma: no cover - exercised only on older transformers versions
+            self.config = AutoConfig.from_pretrained(
+                model_name_or_path,
+                trust_remote_code=True,
+            )
+        self.codebook_size = int(getattr(self.config, "codebook_size", 2048))
+        self.num_quantizers = int(getattr(self.config, "num_quantizers", 32))
+        self.num_semantic_quantizers = int(
+            getattr(self.config, "num_semantic_quantizers", 1)
+        )
         self.feature_extractor = AutoFeatureExtractor.from_pretrained(
             model_name_or_path,
             trust_remote_code=True,
@@ -92,6 +109,9 @@ class MimiEncoder(ModalityEncoder):
         device: str = "cpu",
         audio_field: str = "audio",
         sample_id_field: str = "id",
+        code_selection: str = "semantic_only",
+        num_selected_quantizers: Optional[int] = None,
+        output_vocab_size: Optional[int] = None,
         tokenizer: Optional[Any] = None,
         cfg: Optional[DictConfig] = None,
     ) -> None:
@@ -102,6 +122,9 @@ class MimiEncoder(ModalityEncoder):
         self.device = torch.device(device)
         self.audio_field = audio_field
         self.sample_id_field = sample_id_field
+        self.code_selection = code_selection
+        self.num_selected_quantizers = num_selected_quantizers
+        self.output_vocab_size = output_vocab_size
         self._tokenizer = tokenizer
 
     def supports_precompute(self) -> bool:
@@ -114,7 +137,15 @@ class MimiEncoder(ModalityEncoder):
 
         waveform = self._prepare_waveform(audio, sampling_rate)
         encoded = self._get_tokenizer()(waveform, sampling_rate=self.target_sample_rate)
-        return self._normalize_codes(encoded)
+        codes = self._normalize_codes(
+            encoded,
+            code_selection=self.code_selection,
+            num_selected_quantizers=self.num_selected_quantizers,
+            codebook_size=self._infer_codebook_size(),
+            num_semantic_quantizers=self._infer_num_semantic_quantizers(),
+        )
+        self._validate_output_vocab(codes)
+        return codes
 
     def precompute(
         self,
@@ -160,6 +191,28 @@ class MimiEncoder(ModalityEncoder):
             device=self.device,
         )
         return self._tokenizer
+
+    def _infer_codebook_size(self) -> int:
+        tokenizer = self._get_tokenizer()
+        return int(getattr(tokenizer, "codebook_size", 2048))
+
+    def _infer_num_semantic_quantizers(self) -> int:
+        tokenizer = self._get_tokenizer()
+        return int(getattr(tokenizer, "num_semantic_quantizers", 1))
+
+    def _validate_output_vocab(self, codes: torch.Tensor) -> None:
+        if self.output_vocab_size is None or codes.numel() == 0:
+            return
+        max_code = int(codes.max().item())
+        if max_code >= int(self.output_vocab_size):
+            raise ValueError(
+                "Mimi codes exceed configured output_vocab_size={} (max token id={}). "
+                "Increase the configured discrete/codebook vocabulary or reduce the "
+                "selected number of quantizers.".format(
+                    self.output_vocab_size,
+                    max_code,
+                )
+            )
 
     @staticmethod
     def _extract_audio_payload(audio_entry: Any) -> tuple[np.ndarray, int]:
@@ -223,7 +276,14 @@ class MimiEncoder(ModalityEncoder):
         ).squeeze(0)
 
     @staticmethod
-    def _normalize_codes(encoded: Any) -> torch.Tensor:
+    def _normalize_codes(
+        encoded: Any,
+        *,
+        code_selection: str,
+        num_selected_quantizers: Optional[int],
+        codebook_size: int,
+        num_semantic_quantizers: int,
+    ) -> torch.Tensor:
         payload = encoded
         if isinstance(payload, Mapping):
             for key in ("codes", "audio_codes", "input_ids"):
@@ -249,12 +309,72 @@ class MimiEncoder(ModalityEncoder):
                     "'codes'/'audio_codes' field."
                 ) from exc
 
-        tensor = payload.detach().cpu().long().squeeze()
+        tensor = payload.detach().cpu().long()
         if tensor.ndim == 0:
             return tensor.reshape(1)
-        if tensor.ndim > 1:
+
+        if tensor.ndim == 3:
+            if tensor.shape[0] != 1:
+                raise ValueError(
+                    "Expected Mimi codes with batch dimension 1, got shape {}".format(
+                        tuple(tensor.shape)
+                    )
+                )
+            tensor = tensor[0]
+
+        if tensor.ndim == 2 and tensor.shape[0] == 1:
+            return tensor[0].contiguous()
+
+        if tensor.ndim == 2:
+            selection = code_selection.strip().lower()
+            if selection == "semantic_only":
+                keep = max(1, min(num_semantic_quantizers, tensor.shape[0]))
+                selected = tensor[:keep]
+                if selected.shape[0] == 1:
+                    return selected[0].contiguous()
+                return MimiEncoder._interleave_quantizers(selected, codebook_size)
+
+            if selection == "first_n":
+                if num_selected_quantizers is None:
+                    raise ValueError(
+                        "num_selected_quantizers must be provided when "
+                        "code_selection='first_n'"
+                    )
+                keep = max(1, min(int(num_selected_quantizers), tensor.shape[0]))
+                selected = tensor[:keep]
+                if selected.shape[0] == 1:
+                    return selected[0].contiguous()
+                return MimiEncoder._interleave_quantizers(selected, codebook_size)
+
+            if selection == "all_flattened":
+                return tensor.reshape(-1)
+
+            raise ValueError(
+                "Unsupported Mimi code_selection='{}'; expected one of "
+                "['semantic_only', 'first_n', 'all_flattened']".format(
+                    code_selection
+                )
+            )
+
+        if tensor.ndim > 2:
             return tensor.reshape(-1)
         return tensor
+
+    @staticmethod
+    def _interleave_quantizers(tensor: torch.Tensor, codebook_size: int) -> torch.Tensor:
+        """Convert [Q, T] codes into a 1D stream with quantizer offsets.
+
+        This is a fallback for experiments that keep more than one Mimi codebook.
+        The sequence is interleaved in time-major order to preserve local alignment:
+        q0_t0, q1_t0, ..., q0_t1, q1_t1, ...
+        """
+
+        num_quantizers, num_frames = tensor.shape
+        offsets = torch.arange(num_quantizers, dtype=torch.long).unsqueeze(1) * int(
+            codebook_size
+        )
+        shifted = tensor.long() + offsets
+        return shifted.transpose(0, 1).reshape(num_frames * num_quantizers).contiguous()
 
 
 __all__ = [

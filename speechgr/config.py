@@ -39,6 +39,7 @@ def build_training_arguments(cfg: Union[DictConfig, Dict[str, Any]]) -> Training
 @dataclass
 class DataConfig:
     dataset_path: str
+    docid_map_path: Optional[str] = None
     code_path: Optional[str] = None
     lookup_file_name: Optional[str] = None
     special_token: Optional[int] = 32000

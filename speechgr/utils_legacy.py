@@ -15,7 +15,7 @@ class RestrictDecodeVocab:
         self.valid_ids = valid_ids
         self.tokenizer = tokenizer
         self.tokenized_valid_ids = [
-            tokenizer.encode(docid)
+            self._encode_docid(docid)
             for docid in self.valid_ids
         ]
 
@@ -52,3 +52,9 @@ class RestrictDecodeVocab:
                 valid_tokens = [self.tokenizer.eos_token_id]
                 
         return valid_tokens
+
+    def _encode_docid(self, docid: str):
+        try:
+            return self.tokenizer.encode(docid, add_special_tokens=False)
+        except TypeError:
+            return self.tokenizer.encode(docid)

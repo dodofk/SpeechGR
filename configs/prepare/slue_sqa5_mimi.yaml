@@ -1,4 +1,8 @@
 output_root: outputs/slue_sqa5_mimi
+dataset_name: asapp/slue-phase-2
+dataset_config: sqa5
+streaming: true
+decode_audio: false
 
 encoder:
   name: mimi
@@ -6,11 +10,15 @@ encoder:
     model_name_or_path: ${oc.env:MIMI_MODEL_NAME_OR_PATH,kyutai/mimi}
     device: cpu
     target_sample_rate: 24000
+    code_selection: semantic_only
+    output_vocab_size: 2048
   question:
     params:
       model_name_or_path: ${encoder.params.model_name_or_path}
       device: ${encoder.params.device}
       target_sample_rate: ${encoder.params.target_sample_rate}
+      code_selection: ${encoder.params.code_selection}
+      output_vocab_size: ${encoder.params.output_vocab_size}
       audio_field: question_audio
       sample_id_field: question_id
   document:
@@ -18,5 +26,7 @@ encoder:
       model_name_or_path: ${encoder.params.model_name_or_path}
       device: ${encoder.params.device}
       target_sample_rate: ${encoder.params.target_sample_rate}
+      code_selection: ${encoder.params.code_selection}
+      output_vocab_size: ${encoder.params.output_vocab_size}
       audio_field: document_audio
       sample_id_field: document_id

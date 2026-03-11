@@ -12,7 +12,8 @@ class DummyTokenizer:
             "doc1": [11, 12],
         }
 
-    def encode(self, docid):
+    def encode(self, docid, add_special_tokens=False):
+        assert add_special_tokens is False
         return self._lookup[docid]
 
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import json
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Tuple
@@ -68,6 +69,7 @@ class SLUESQA5Dataset(Dataset, ABC):
         corpus_splits: Optional[Iterable[str]] = None,
         train_atomic: bool = False,
         atomic_offset: Optional[int] = None,
+        docid_map_path: Optional[str] = None,
     ) -> None:
         if split not in _SPLITS:
             raise ValueError(f"split must be one of {_SPLITS}, got '{split}'")
@@ -104,13 +106,15 @@ class SLUESQA5Dataset(Dataset, ABC):
         self.corpus_frame = pd.read_csv(corpus_path)
 
         self.query_len = len(self.query_frame)
-        self.doc_ids = self.corpus_frame["document_id"].tolist()
+        self.doc_ids = [str(doc_id) for doc_id in self.corpus_frame["document_id"].tolist()]
         self.doc_id_to_idx = {doc_id: idx for idx, doc_id in enumerate(self.doc_ids)}
+        self.docid_map_path = docid_map_path
+        self.docid_map = self._load_docid_map(docid_map_path)
 
         if self.train_atomic:
             self._update_valid_ids()
         else:
-            self.valid_ids = self.doc_ids
+            self.valid_ids = self._resolve_valid_ids()
 
     def __len__(self) -> int:
         if self.include_corpus:
@@ -136,6 +140,13 @@ class SLUESQA5Dataset(Dataset, ABC):
     def _label(self, document_id: str, doc_idx: int) -> str | int:
         if self.train_atomic:
             return doc_idx + self._resolve_atomic_offset()
+        if self.docid_map is not None:
+            mapped = self.docid_map.get(document_id)
+            if mapped is None:
+                raise KeyError(
+                    f"Missing document_id '{document_id}' in docid_map '{self.docid_map_path}'"
+                )
+            return mapped
         return document_id
 
     def _resolve_atomic_offset(self) -> int:
@@ -153,10 +164,51 @@ class SLUESQA5Dataset(Dataset, ABC):
 
     def _update_valid_ids(self) -> None:
         if not self.train_atomic:
-            self.valid_ids = self.doc_ids
+            self.valid_ids = self._resolve_valid_ids()
             return
         offset = self._resolve_atomic_offset()
         self.valid_ids = [str(idx + offset) for idx in range(len(self.doc_ids))]
+
+    def _resolve_valid_ids(self) -> List[str]:
+        if self.docid_map is None:
+            return self.doc_ids
+        return [self._resolve_docid_string(doc_id) for doc_id in self.doc_ids]
+
+    def _resolve_docid_string(self, document_id: str) -> str:
+        if self.docid_map is None:
+            return document_id
+        mapped = self.docid_map.get(document_id)
+        if mapped is None:
+            raise KeyError(
+                f"Missing document_id '{document_id}' in docid_map '{self.docid_map_path}'"
+            )
+        return mapped
+
+    @staticmethod
+    def _load_docid_map(path: Optional[str]) -> Optional[Dict[str, str]]:
+        if not path:
+            return None
+        payload = json.loads(Path(path).read_text())
+        if not isinstance(payload, dict):
+            raise TypeError(f"DocID map at '{path}' must be a JSON object")
+
+        resolved: Dict[str, str] = {}
+        for doc_id, value in payload.items():
+            if isinstance(value, str):
+                resolved[str(doc_id)] = value
+                continue
+            if isinstance(value, dict):
+                if "docid" in value:
+                    resolved[str(doc_id)] = str(value["docid"])
+                    continue
+                if "tokens" in value and isinstance(value["tokens"], list):
+                    resolved[str(doc_id)] = " ".join(str(tok) for tok in value["tokens"])
+                    continue
+            raise TypeError(
+                f"Unsupported DocID map entry for '{doc_id}'. Expected string, "
+                "{'docid': ...}, or {'tokens': [...]}"
+            )
+        return resolved
 
     @abstractmethod
     def _get_query_features(self, question_id: str):

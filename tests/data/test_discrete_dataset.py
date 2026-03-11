@@ -1,10 +1,11 @@
 import csv
 from collections import defaultdict
+import json
 
 import pytest
 import torch
 
-from speechgr.data.slue_sqa5 import DiscreteUnitDataset
+from speechgr.data import DiscreteUnitDataset, SlueSQA5DatasetV2
 
 
 def _write_csv(path, rows):
@@ -183,3 +184,86 @@ def test_discrete_dataset_reject_non_squeezable(tmp_path):
 
     with pytest.raises(ValueError):
         _ = dataset[0]
+
+
+def test_discrete_dataset_uses_docid_map_labels(tmp_path):
+    csv_root = tmp_path / "csv"
+    cache_root = tmp_path / "cache"
+    docid_map_path = tmp_path / "docid_map.json"
+
+    _write_csv(
+        csv_root / "train.csv",
+        [{"question_id": "q1", "document_id": "d1"}],
+    )
+    _write_csv(csv_root / "corpus.csv", [{"document_id": "d1"}])
+
+    _write_cache(
+        cache_root / "train" / "train_dummy.pt",
+        {"q1": {"codes": torch.arange(0, 6, dtype=torch.long)}},
+    )
+    _write_cache(
+        cache_root / "corpus" / "corpus_dummy.pt",
+        {"d1": {"codes": torch.arange(10, 22, dtype=torch.long)}},
+    )
+
+    docid_map_path.write_text(
+        json.dumps(
+            {
+                "d1": {
+                    "docid": "<cl_000> <lf1_000> <lf2_000>",
+                    "tokens": ["<cl_000>", "<lf1_000>", "<lf2_000>"],
+                }
+            }
+        )
+    )
+
+    dataset = DiscreteUnitDataset(
+        split="train",
+        dataset_path=str(csv_root),
+        precompute_root=str(cache_root),
+        encoder_name="dummy",
+        include_corpus=True,
+        docid_map_path=str(docid_map_path),
+    )
+
+    _, label, _ = dataset[0]
+    assert label == "<cl_000> <lf1_000> <lf2_000>"
+    assert dataset.valid_ids == ["<cl_000> <lf1_000> <lf2_000>"]
+
+
+def test_legacy_slue_dataset_v2_uses_docid_map_labels(tmp_path):
+    csv_root = tmp_path / "csv"
+    cache_root = tmp_path / "cache"
+    docid_map_path = tmp_path / "docid_map.json"
+
+    _write_csv(
+        csv_root / "train.csv",
+        [{"question_id": "q1", "document_id": "d1"}],
+    )
+    _write_csv(csv_root / "corpus.csv", [{"document_id": "d1"}])
+
+    _write_cache(
+        cache_root / "train" / "train_dummy.pt",
+        {"q1": {"codes": torch.arange(0, 6, dtype=torch.long)}},
+    )
+    _write_cache(
+        cache_root / "corpus" / "corpus_dummy.pt",
+        {"d1": {"codes": torch.arange(10, 22, dtype=torch.long)}},
+    )
+
+    docid_map_path.write_text(
+        json.dumps({"d1": "<cl_111> <lf1_002> <lf2_003>"})
+    )
+
+    dataset = SlueSQA5DatasetV2(
+        split="train",
+        dataset_path=str(csv_root),
+        precompute_root=str(cache_root),
+        encoder_name="dummy",
+        include_corpus=True,
+        docid_map_path=str(docid_map_path),
+    )
+
+    _, label, _ = dataset[0]
+    assert label == "<cl_111> <lf1_002> <lf2_003>"
+    assert dataset.valid_ids == ["<cl_111> <lf1_002> <lf2_003>"]

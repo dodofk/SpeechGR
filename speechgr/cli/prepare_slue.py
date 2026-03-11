@@ -7,7 +7,7 @@ import json
 from pathlib import Path
 from typing import Dict, Iterable, Iterator, Mapping
 
-from datasets import load_dataset
+from datasets import Audio, load_dataset
 from hydra import main as hydra_main
 from omegaconf import DictConfig, OmegaConf
 
@@ -16,6 +16,24 @@ import torch
 from speechgr.encoders.registry import get_encoder_class
 
 _SPLITS = ["train", "validation", "test", "verified_test"]
+
+
+def _load_slue_dataset(cfg: DictConfig):
+    dataset_name = cfg.get("dataset_name", "asapp/slue-phase-2")
+    dataset_config = cfg.get("dataset_config", "sqa5")
+    streaming = bool(cfg.get("streaming", False))
+    decode_audio = bool(cfg.get("decode_audio", True))
+
+    dataset = load_dataset(
+        dataset_name,
+        dataset_config,
+        streaming=streaming,
+    )
+
+    audio_feature = Audio(decode=decode_audio)
+    dataset = dataset.cast_column("question_audio", audio_feature)
+    dataset = dataset.cast_column("document_audio", audio_feature)
+    return dataset
 
 
 def _ensure_dir(path: Path) -> Path:
@@ -122,7 +140,7 @@ def _length_statistics(cache_path: Path, value_key: str = "codes") -> Dict[str, 
 
 @hydra_main(version_base=None, config_path="../../configs/prepare", config_name="slue_sqa5")
 def main(cfg: DictConfig) -> None:
-    dataset = load_dataset("asapp/slue-phase-2", "sqa5")
+    dataset = _load_slue_dataset(cfg)
 
     output_root = Path(cfg.output_root).resolve()
     csv_dir = _ensure_dir(output_root / "csv")

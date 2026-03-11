@@ -9,6 +9,9 @@ from speechgr.encoders.registry import get_encoder_class, list_encoders
 
 
 class DummyMimiTokenizer:
+    codebook_size = 2048
+    num_semantic_quantizers = 1
+
     def __call__(self, waveform: torch.Tensor, *, sampling_rate: int):
         assert sampling_rate == 24_000
         length = waveform.shape[-1]
@@ -59,3 +62,102 @@ def test_mimi_encoder_encode_and_cache_roundtrip(tmp_path):
 
     loaded = encoder.load_feature("train", str(tmp_path), "q1")
     assert torch.equal(loaded["codes"], codes)
+
+
+def test_mimi_encoder_semantic_only_uses_first_quantizer():
+    class MultiCodebookTokenizer:
+        codebook_size = 8
+        num_semantic_quantizers = 1
+
+        def __call__(self, waveform: torch.Tensor, *, sampling_rate: int):
+            del waveform, sampling_rate
+            return {
+                "codes": torch.tensor(
+                    [[[1, 2, 3], [4, 5, 6]]],
+                    dtype=torch.long,
+                )
+            }
+
+    encoder = MimiEncoder(
+        tokenizer=MultiCodebookTokenizer(),
+        code_selection="semantic_only",
+    )
+
+    codes = encoder.encode_audio(np.zeros(24_000, dtype=np.float32), sampling_rate=24_000)
+    assert torch.equal(codes, torch.tensor([1, 2, 3], dtype=torch.long))
+
+
+def test_mimi_encoder_first_n_interleaves_with_offsets():
+    class MultiCodebookTokenizer:
+        codebook_size = 8
+        num_semantic_quantizers = 1
+
+        def __call__(self, waveform: torch.Tensor, *, sampling_rate: int):
+            del waveform, sampling_rate
+            return {
+                "codes": torch.tensor(
+                    [[[1, 2], [3, 4]]],
+                    dtype=torch.long,
+                )
+            }
+
+    encoder = MimiEncoder(
+        tokenizer=MultiCodebookTokenizer(),
+        code_selection="first_n",
+        num_selected_quantizers=2,
+    )
+
+    codes = encoder.encode_audio(np.zeros(24_000, dtype=np.float32), sampling_rate=24_000)
+    assert torch.equal(codes, torch.tensor([1, 11, 2, 12], dtype=torch.long))
+
+
+def test_mimi_encoder_validates_output_vocab_size_for_interleaved_modes():
+    class MultiCodebookTokenizer:
+        codebook_size = 8
+        num_semantic_quantizers = 1
+
+        def __call__(self, waveform: torch.Tensor, *, sampling_rate: int):
+            del waveform, sampling_rate
+            return {
+                "codes": torch.tensor(
+                    [[[1, 2], [3, 4]]],
+                    dtype=torch.long,
+                )
+            }
+
+    encoder = MimiEncoder(
+        tokenizer=MultiCodebookTokenizer(),
+        code_selection="first_n",
+        num_selected_quantizers=2,
+        output_vocab_size=8,
+    )
+
+    try:
+        encoder.encode_audio(np.zeros(24_000, dtype=np.float32), sampling_rate=24_000)
+    except ValueError as exc:
+        assert "output_vocab_size" in str(exc)
+    else:  # pragma: no cover - keeps failure message explicit
+        raise AssertionError("Expected output_vocab_size validation to raise ValueError")
+
+
+def test_mimi_encoder_semantic_only_handles_single_frame_output():
+    class SingleFrameTokenizer:
+        codebook_size = 8
+        num_semantic_quantizers = 1
+
+        def __call__(self, waveform: torch.Tensor, *, sampling_rate: int):
+            del waveform, sampling_rate
+            return {
+                "codes": torch.tensor(
+                    [[[7], [3], [5]]],
+                    dtype=torch.long,
+                )
+            }
+
+    encoder = MimiEncoder(
+        tokenizer=SingleFrameTokenizer(),
+        code_selection="semantic_only",
+    )
+
+    codes = encoder.encode_audio(np.zeros(24_000, dtype=np.float32), sampling_rate=24_000)
+    assert torch.equal(codes, torch.tensor([7], dtype=torch.long))

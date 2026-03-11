@@ -26,19 +26,29 @@ from speechgr import (
     to_dataclass,
 )
 from speechgr.trainer import DSITrainer
+from speechgr.utils.docid import normalize_docid_text
 from speechgr.utils_legacy import RestrictDecodeVocab
 
 
 logger = logging.getLogger(__name__)
 
-
 def make_compute_metrics(tokenizer, valid_ids):
+    normalized_valid_ids = {normalize_docid_text(docid) for docid in valid_ids}
+
     def compute_metrics(eval_preds):
         hit1 = hit10 = hit20 = 0
         for beams, label in zip(eval_preds.predictions, eval_preds.label_ids):
-            rank = tokenizer.batch_decode(beams, skip_special_tokens=True)
-            gold = tokenizer.decode(label, skip_special_tokens=True)
-            rank = [d for i, d in enumerate(rank) if d not in rank[:i] and d in valid_ids]
+            rank = [
+                normalize_docid_text(docid)
+                for docid in tokenizer.batch_decode(beams, skip_special_tokens=True)
+            ]
+            gold = normalize_docid_text(
+                tokenizer.decode(label, skip_special_tokens=True)
+            )
+            rank = [
+                d for i, d in enumerate(rank)
+                if d not in rank[:i] and d in normalized_valid_ids
+            ]
 
             if gold in rank[:1]:
                 hit1 += 1

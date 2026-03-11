@@ -1,4 +1,8 @@
 output_root: outputs/slue_sqa5
+dataset_name: asapp/slue-phase-2
+dataset_config: sqa5
+streaming: false
+decode_audio: true
 
 encoder:
   name: wavtokenizer

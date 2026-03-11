@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Optional
+from typing import Iterable, Optional
 
 import numpy as np
 import wandb
@@ -34,10 +34,32 @@ from speechgr import (
     to_dataclass,
 )
 from speechgr.trainer import DSITrainer
+from speechgr.utils.docid import collect_docid_tokens, normalize_docid_text
 from speechgr.utils_legacy import RestrictDecodeVocab
 
 
 logger = logging.getLogger(__name__)
+
+
+def _maybe_register_docid_tokens(tokenizer, fast_tokenizer, model, valid_ids: Iterable[str]) -> int:
+    docid_tokens = collect_docid_tokens(valid_ids)
+    if not docid_tokens:
+        return 0
+
+    added = tokenizer.add_tokens(docid_tokens, special_tokens=False)
+    if fast_tokenizer is not tokenizer:
+        fast_tokenizer.add_tokens(docid_tokens, special_tokens=False)
+
+    if added > 0:
+        input_embeddings = model.get_input_embeddings()
+        current_vocab_size = (
+            int(input_embeddings.num_embeddings) if input_embeddings is not None else 0
+        )
+        target_vocab_size = max(current_vocab_size, len(tokenizer))
+        if target_vocab_size > current_vocab_size:
+            model.resize_token_embeddings(target_vocab_size)
+        logger.info("Registered %d hierarchical DocID tokens with tokenizer", added)
+    return added
 
 
 def make_compute_metrics(
@@ -46,17 +68,24 @@ def make_compute_metrics(
     *,
     log_eval_artifacts: bool,
     log_eval_raw_predictions: bool,
-):
+): 
+    normalized_valid_ids = {normalize_docid_text(docid) for docid in valid_ids}
+
     def compute_metrics(eval_preds):
         hit_at_1 = 0
         hit_at_10 = 0
         hit_at_20 = 0
         for beams, label in zip(eval_preds.predictions, eval_preds.label_ids):
-            rank_list = tokenizer.batch_decode(beams, skip_special_tokens=True)
-            label_id = tokenizer.decode(label, skip_special_tokens=True)
+            rank_list = [
+                normalize_docid_text(docid)
+                for docid in tokenizer.batch_decode(beams, skip_special_tokens=True)
+            ]
+            label_id = normalize_docid_text(
+                tokenizer.decode(label, skip_special_tokens=True)
+            )
             filtered_rank_list = []
             for docid in rank_list:
-                if docid not in filtered_rank_list and docid in valid_ids:
+                if docid not in filtered_rank_list and docid in normalized_valid_ids:
                     filtered_rank_list.append(docid)
             hits = np.where(np.array(filtered_rank_list)[:10] == label_id)[0]
             hits_at_20 = np.where(np.array(filtered_rank_list)[:20] == label_id)[0]
@@ -310,6 +339,7 @@ def _build_dataset(
             corpus_max_length=corpus_max_length,
             train_atomic=data_cfg.train_atomic,
             atomic_offset=data_cfg.atomic_offset,
+            docid_map_path=data_cfg.docid_map_path,
             corpus_splits=data_cfg.include_corpus_splits,
             corpus_chunk_size=data_cfg.corpus_chunk_size,
             corpus_chunk_stride=data_cfg.corpus_chunk_stride,
@@ -328,6 +358,7 @@ def _build_dataset(
         include_corpus=data_cfg.include_corpus,
         train_atomic=data_cfg.train_atomic,
         atomic_offset=data_cfg.atomic_offset,
+        docid_map_path=data_cfg.docid_map_path,
         max_length=query_max_length,
         query_max_length=query_max_length,
         corpus_max_length=corpus_max_length,
@@ -395,6 +426,13 @@ def run(cfg: DictConfig) -> None:
         model_cfg.model_name,
         run_cfg.max_length,
         shared_text_encoder,
+    )
+
+    _maybe_register_docid_tokens(
+        tokenizer,
+        fast_tokenizer,
+        model,
+        train_dataset.valid_ids,
     )
 
     restrict_decode_vocab = RestrictDecodeVocab(

@@ -20,23 +20,30 @@ from speechgr import (
     to_dataclass,
 )
 from speechgr.trainer import DSIRankingTrainer, NegLambdaScheduleCallback, RankingLossCallback
+from speechgr.utils.docid import normalize_docid_text
 from speechgr.utils_legacy import RestrictDecodeVocab
 
 
 logger = logging.getLogger(__name__)
 
-
 def make_compute_metrics(tokenizer, valid_ids):
+    normalized_valid_ids = {normalize_docid_text(docid) for docid in valid_ids}
+
     def compute_metrics(eval_preds):
         hit_at_1 = 0
         hit_at_10 = 0
         hit_at_20 = 0
         for beams, label in zip(eval_preds.predictions, eval_preds.label_ids):
-            rank_list = tokenizer.batch_decode(beams, skip_special_tokens=True)
-            label_id = tokenizer.decode(label, skip_special_tokens=True)
+            rank_list = [
+                normalize_docid_text(docid)
+                for docid in tokenizer.batch_decode(beams, skip_special_tokens=True)
+            ]
+            label_id = normalize_docid_text(
+                tokenizer.decode(label, skip_special_tokens=True)
+            )
             filtered_rank_list = []
             for docid in rank_list:
-                if docid not in filtered_rank_list and docid in valid_ids:
+                if docid not in filtered_rank_list and docid in normalized_valid_ids:
                     filtered_rank_list.append(docid)
             hits = np.where(np.array(filtered_rank_list)[:10] == label_id)[0]
             hits_at_20 = np.where(np.array(filtered_rank_list)[:20] == label_id)[0]

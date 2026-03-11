@@ -14,14 +14,17 @@ class DSITrainer(Trainer):
         id_max_length: int = 128,
         **kwds,
     ):
+        processing_class = kwds.get("processing_class")
         super().__init__(**kwds)
         self.restrict_decode_vocab = restrict_decode_vocab
         self.id_max_length = id_max_length
+        if getattr(self, "tokenizer", None) is None and processing_class is not None:
+            self.tokenizer = processing_class
         # Default decoding knobs; Hydra overrides update these after instantiation.
         self.num_return_sequences = 1
         self.top_k = 1
 
-    def compute_loss(self, model, inputs, return_outputs=False):
+    def compute_loss(self, model, inputs, return_outputs=False, **kwargs):
         if "query_doc_id" in inputs:
             inputs.pop("query_doc_id")
         loss = model(**inputs).loss
@@ -118,10 +121,13 @@ class DSITrainer(Trainer):
 
 class DocTqueryTrainer(Trainer):
     def __init__(self, do_generation: bool, **kwds):
+        processing_class = kwds.get("processing_class")
         super().__init__(**kwds)
+        if getattr(self, "tokenizer", None) is None and processing_class is not None:
+            self.tokenizer = processing_class
         self.do_generation = do_generation
 
-    def compute_loss(self, model, inputs, return_outputs=False):
+    def compute_loss(self, model, inputs, return_outputs=False, **kwargs):
         loss = model(
             input_ids=inputs["input_ids"],
             attention_mask=inputs["attention_mask"],
@@ -389,7 +395,7 @@ class DSIRankingTrainer(DSITrainer):
         margin = (dec_hidden_state * decoder_embeds).sum(-1).sum(-1)
         return margin
 
-    def compute_loss(self, model, inputs, return_outputs=True):
+    def compute_loss(self, model, inputs, return_outputs=True, **kwargs):
         """
         total_loss = CE
                 + λ_inbatch · margin(in-batch)        (if λ_inbatch ≠ 0)
