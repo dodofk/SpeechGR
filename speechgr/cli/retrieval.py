@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 from typing import Iterable, Optional
 
 import numpy as np
@@ -34,7 +35,12 @@ from speechgr import (
     to_dataclass,
 )
 from speechgr.trainer import DSITrainer
-from speechgr.utils.docid import collect_docid_tokens, normalize_docid_text
+from speechgr.utils.docid import (
+    collect_docid_tokens,
+    extract_cluster_token,
+    normalize_docid_text,
+    summarize_cluster_balance,
+)
 from speechgr.utils_legacy import RestrictDecodeVocab
 
 
@@ -68,13 +74,19 @@ def make_compute_metrics(
     *,
     log_eval_artifacts: bool,
     log_eval_raw_predictions: bool,
-): 
+):
     normalized_valid_ids = {normalize_docid_text(docid) for docid in valid_ids}
+    cluster_balance = summarize_cluster_balance(normalized_valid_ids)
 
     def compute_metrics(eval_preds):
         hit_at_1 = 0
         hit_at_10 = 0
         hit_at_20 = 0
+        cluster_hit_at_1 = 0
+        cluster_hit_at_10 = 0
+        cluster_hit_at_20 = 0
+        top1_cluster_counts: dict[str, int] = {}
+
         for beams, label in zip(eval_preds.predictions, eval_preds.label_ids):
             rank_list = [
                 normalize_docid_text(docid)
@@ -87,6 +99,13 @@ def make_compute_metrics(
             for docid in rank_list:
                 if docid not in filtered_rank_list and docid in normalized_valid_ids:
                     filtered_rank_list.append(docid)
+
+            gold_cluster = extract_cluster_token(label_id)
+            filtered_clusters = [extract_cluster_token(docid) for docid in filtered_rank_list]
+            if filtered_clusters:
+                cluster = filtered_clusters[0]
+                top1_cluster_counts[cluster] = top1_cluster_counts.get(cluster, 0) + 1
+
             hits = np.where(np.array(filtered_rank_list)[:10] == label_id)[0]
             hits_at_20 = np.where(np.array(filtered_rank_list)[:20] == label_id)[0]
             if len(hits) != 0:
@@ -96,20 +115,55 @@ def make_compute_metrics(
             if len(hits_at_20) != 0:
                 hit_at_20 += 1
 
+            if gold_cluster:
+                if gold_cluster in filtered_clusters[:1]:
+                    cluster_hit_at_1 += 1
+                if gold_cluster in filtered_clusters[:10]:
+                    cluster_hit_at_10 += 1
+                if gold_cluster in filtered_clusters[:20]:
+                    cluster_hit_at_20 += 1
+
+        total_examples = len(eval_preds.predictions)
+        collapse_top1_share = 0.0
+        cluster_entropy = 0.0
+        if top1_cluster_counts and total_examples > 0:
+            max_count = max(top1_cluster_counts.values())
+            collapse_top1_share = max_count / total_examples
+            for count in top1_cluster_counts.values():
+                prob = count / total_examples
+                cluster_entropy -= prob * math.log(prob + 1e-12)
+
         metrics = {
-            "Hits@1": hit_at_1 / len(eval_preds.predictions),
-            "Hits@10": hit_at_10 / len(eval_preds.predictions),
-            "Hits@20": hit_at_20 / len(eval_preds.predictions),
+            "Hits@1": hit_at_1 / total_examples,
+            "Hits@10": hit_at_10 / total_examples,
+            "Hits@20": hit_at_20 / total_examples,
+            "ClusterHits@1": cluster_hit_at_1 / total_examples,
+            "ClusterHits@10": cluster_hit_at_10 / total_examples,
+            "ClusterHits@20": cluster_hit_at_20 / total_examples,
+            "PredTop1ClusterShare": collapse_top1_share,
+            "PredTop1ClusterEntropy": cluster_entropy,
+            "ClusterCount": cluster_balance["num_clusters"],
+            "MeanClusterSize": cluster_balance["mean_cluster_size"],
+            "MaxClusterSize": cluster_balance["max_cluster_size"],
+        }
+
+        diagnostics = {
+            "cluster_balance": cluster_balance,
+            "predicted_top1_cluster_counts": top1_cluster_counts,
         }
 
         if log_eval_artifacts:
             with open("eval_results.json", "w") as f:
                 json.dump(metrics, f, indent=4)
 
+            with open("eval_cluster_diagnostics.json", "w") as f:
+                json.dump(diagnostics, f, indent=2)
+
             artifact = wandb.Artifact(
                 "eval_results", type="evaluation", description="Evaluation results"
             )
             artifact.add_file("eval_results.json")
+            artifact.add_file("eval_cluster_diagnostics.json")
             wandb.log_artifact(artifact)
 
         if log_eval_raw_predictions:
@@ -435,6 +489,9 @@ def run(cfg: DictConfig) -> None:
         train_dataset.valid_ids,
     )
 
+    cluster_balance = summarize_cluster_balance(train_dataset.valid_ids)
+    logger.info("Hierarchical DocID cluster balance: %s", cluster_balance)
+
     restrict_decode_vocab = RestrictDecodeVocab(
         valid_ids=train_dataset.valid_ids, tokenizer=tokenizer
     )
@@ -480,5 +537,9 @@ def run(cfg: DictConfig) -> None:
     trainer.generation_max_length = run_cfg.generation_max_length
 
     _maybe_init_wandb(training_args, wandb_cfg, run_cfg.run_notes, cfg)
+    if wandb.run is not None:
+        wandb.summary["cluster_count"] = cluster_balance["num_clusters"]
+        wandb.summary["mean_cluster_size"] = cluster_balance["mean_cluster_size"]
+        wandb.summary["max_cluster_size"] = cluster_balance["max_cluster_size"]
 
     trainer.train()
