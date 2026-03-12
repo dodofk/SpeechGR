@@ -312,7 +312,18 @@ class MimiEncoder(ModalityEncoder):
             tensor = tensor.unsqueeze(0)
 
         if tensor.ndim == 2:
-            outputs = [row.contiguous() for row in tensor]
+            if len(waveforms) == 1:
+                outputs = [
+                    self._normalize_codes(
+                        tensor,
+                        code_selection=self.code_selection,
+                        num_selected_quantizers=self.num_selected_quantizers,
+                        codebook_size=self._infer_codebook_size(),
+                        num_semantic_quantizers=self._infer_num_semantic_quantizers(),
+                    )
+                ]
+            else:
+                outputs = [row.contiguous() for row in tensor]
         elif tensor.ndim == 3:
             outputs = []
             for waveform, row in zip(waveforms, tensor):
