@@ -15,3 +15,19 @@ def test_build_training_arguments_translates_evaluation_strategy(tmp_path):
     )
 
     assert str(args.eval_strategy).lower().endswith("steps")
+
+
+def test_build_training_arguments_drops_unsupported_keys(tmp_path):
+    args = build_training_arguments(
+        {
+            "output_dir": str(tmp_path / "out"),
+            "per_device_train_batch_size": 1,
+            "per_device_eval_batch_size": 1,
+            "save_strategy": "no",
+            "report_to": [],
+            "use_cpu": True,
+            "save_safetensors": True,
+        }
+    )
+
+    assert args.output_dir == str(tmp_path / "out")

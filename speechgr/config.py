@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import inspect
 from pathlib import Path
 from typing import Any, Dict, Iterable, Optional, Type, TypeVar, Union
 
@@ -35,6 +36,12 @@ def build_training_arguments(cfg: Union[DictConfig, Dict[str, Any]]) -> Training
     # Keep older repo configs working by translating automatically.
     if "evaluation_strategy" in cfg_dict and "eval_strategy" not in cfg_dict:
         cfg_dict["eval_strategy"] = cfg_dict.pop("evaluation_strategy")
+
+    supported_keys = set(inspect.signature(TrainingArguments.__init__).parameters.keys())
+    supported_keys.discard("self")
+    dropped_keys = sorted(set(cfg_dict.keys()) - supported_keys)
+    if dropped_keys:
+        cfg_dict = {k: v for k, v in cfg_dict.items() if k in supported_keys}
     output_dir = Path(cfg_dict.get("output_dir", "models"))
     output_dir.mkdir(parents=True, exist_ok=True)
     return TrainingArguments(**cfg_dict)
