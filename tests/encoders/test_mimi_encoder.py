@@ -161,3 +161,45 @@ def test_mimi_encoder_semantic_only_handles_single_frame_output():
 
     codes = encoder.encode_audio(np.zeros(24_000, dtype=np.float32), sampling_rate=24_000)
     assert torch.equal(codes, torch.tensor([7], dtype=torch.long))
+
+
+def test_mimi_encoder_precompute_batches_samples(tmp_path):
+    class BatchTokenizer:
+        codebook_size = 8
+        num_semantic_quantizers = 1
+
+        def __init__(self):
+            self.batch_sizes = []
+
+        def __call__(self, waveform, *, sampling_rate: int):
+            assert sampling_rate == 24_000
+            if isinstance(waveform, list):
+                batch_size = len(waveform)
+            else:
+                batch_size = 1
+            self.batch_sizes.append(batch_size)
+            return {
+                "codes": torch.tensor(
+                    [[[1, 2, 3]]] * batch_size,
+                    dtype=torch.long,
+                )
+            }
+
+    tokenizer = BatchTokenizer()
+    encoder = MimiEncoder(
+        tokenizer=tokenizer,
+        audio_field="question_audio",
+        sample_id_field="question_id",
+        batch_size=2,
+    )
+
+    audio = np.linspace(-1.0, 1.0, 16_000, dtype=np.float32)
+    samples = [
+        {"question_id": "q1", "question_audio": {"array": audio, "sampling_rate": 16_000}},
+        {"question_id": "q2", "question_audio": {"array": audio, "sampling_rate": 16_000}},
+        {"question_id": "q3", "question_audio": {"array": audio, "sampling_rate": 16_000}},
+    ]
+
+    encoder.precompute("train", str(tmp_path), samples)
+
+    assert tokenizer.batch_sizes == [2, 1]

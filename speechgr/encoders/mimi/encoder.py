@@ -79,9 +79,22 @@ class _TransformersMimiTokenizer:
             )
         self.model = self.model.to(device).eval()
 
-    def __call__(self, waveform: torch.Tensor, *, sampling_rate: int) -> Any:
+    def __call__(self, waveform: Any, *, sampling_rate: int) -> Any:
+        if isinstance(waveform, (list, tuple)):
+            raw_audio = []
+            for item in waveform:
+                if isinstance(item, torch.Tensor):
+                    raw_audio.append(item.squeeze().cpu().numpy())
+                else:
+                    raw_audio.append(np.asarray(item).squeeze())
+        else:
+            raw_audio = waveform.cpu().numpy()
+            if waveform.ndim == 2 and waveform.shape[0] > 1:
+                raw_audio = [raw_audio[idx] for idx in range(raw_audio.shape[0])]
+            elif waveform.ndim == 2 and waveform.shape[0] == 1:
+                raw_audio = raw_audio[0]
         inputs = self.feature_extractor(
-            raw_audio=waveform.squeeze(0).cpu().numpy(),
+            raw_audio=raw_audio,
             sampling_rate=sampling_rate,
             return_tensors="pt",
         )
@@ -92,8 +105,11 @@ class _TransformersMimiTokenizer:
 
         with torch.no_grad():
             input_values = inputs.get("input_values")
+            padding_mask = inputs.get("attention_mask")
+            if isinstance(padding_mask, torch.Tensor):
+                padding_mask = padding_mask.to(self.device)
             if hasattr(self.model, "encode") and input_values is not None:
-                return self.model.encode(input_values)
+                return self.model.encode(input_values, padding_mask=padding_mask)
             return self.model(**inputs)
 
 
@@ -116,6 +132,7 @@ class MimiEncoder(ModalityEncoder):
         code_selection: str = "semantic_only",
         num_selected_quantizers: Optional[int] = None,
         output_vocab_size: Optional[int] = None,
+        batch_size: int = 1,
         tokenizer: Optional[Any] = None,
         cfg: Optional[DictConfig] = None,
     ) -> None:
@@ -129,6 +146,7 @@ class MimiEncoder(ModalityEncoder):
         self.code_selection = code_selection
         self.num_selected_quantizers = num_selected_quantizers
         self.output_vocab_size = output_vocab_size
+        self.batch_size = max(1, int(batch_size))
         self._tokenizer = tokenizer
 
     def supports_precompute(self) -> bool:
@@ -159,16 +177,36 @@ class MimiEncoder(ModalityEncoder):
     ) -> None:
         cache: Dict[str, Dict[str, torch.Tensor]] = {}
         logger.info(
-            "Starting Mimi precompute split=%s output_dir=%s code_selection=%s",
+            "Starting Mimi precompute split=%s output_dir=%s code_selection=%s batch_size=%s",
             dataset_split,
             output_dir,
             self.code_selection,
+            self.batch_size,
         )
         total = None
         try:
             total = len(samples)
         except TypeError:
             total = None
+
+        pending_ids: list[str] = []
+        pending_waveforms: list[torch.Tensor] = []
+
+        def flush_pending() -> None:
+            if not pending_ids:
+                return
+            codes_batch = self._encode_waveforms(pending_waveforms)
+            if len(codes_batch) != len(pending_ids):
+                raise ValueError(
+                    "Mimi batch encoding returned {} sequences for {} pending ids".format(
+                        len(codes_batch),
+                        len(pending_ids),
+                    )
+                )
+            for sample_id, codes in zip(pending_ids, codes_batch):
+                cache[str(sample_id)] = {"codes": codes.long()}
+            pending_ids.clear()
+            pending_waveforms.clear()
 
         for sample in tqdm(
             samples,
@@ -190,9 +228,13 @@ class MimiEncoder(ModalityEncoder):
                     f"Expected id field '{self.sample_id_field}' in dataset sample"
                 )
 
-            cache[str(sample_id)] = {
-                "codes": self.encode_audio(np.asarray(audio), int(sampling_rate)).long()
-            }
+            waveform = self._prepare_waveform(np.asarray(audio), int(sampling_rate))
+            pending_ids.append(str(sample_id))
+            pending_waveforms.append(waveform)
+            if len(pending_ids) >= self.batch_size:
+                flush_pending()
+
+        flush_pending()
 
         cache_path = self.cache_path(dataset_split, output_dir)
         cache_path.parent.mkdir(parents=True, exist_ok=True)
@@ -230,6 +272,66 @@ class MimiEncoder(ModalityEncoder):
             getattr(self._tokenizer, "num_semantic_quantizers", "?"),
         )
         return self._tokenizer
+
+    def _encode_waveforms(self, waveforms: list[torch.Tensor]) -> list[torch.Tensor]:
+        if not waveforms:
+            return []
+
+        tokenizer = self._get_tokenizer()
+        if len(waveforms) == 1:
+            encoded = tokenizer(
+                waveforms[0],
+                sampling_rate=self.target_sample_rate,
+            )
+        else:
+            encoded = tokenizer(
+                [waveform.squeeze(0) for waveform in waveforms],
+                sampling_rate=self.target_sample_rate,
+            )
+        payload = encoded
+        if isinstance(payload, Mapping):
+            for key in ("codes", "audio_codes", "input_ids"):
+                if key in payload:
+                    payload = payload[key]
+                    break
+        else:
+            for attr in ("codes", "audio_codes", "input_ids"):
+                value = getattr(payload, attr, None)
+                if value is not None:
+                    payload = value
+                    break
+
+        if not isinstance(payload, torch.Tensor):
+            payload = torch.as_tensor(payload)
+
+        tensor = payload.detach().cpu().long()
+        if tensor.ndim == 0:
+            tensor = tensor.reshape(1, 1)
+        elif tensor.ndim == 1:
+            tensor = tensor.unsqueeze(0)
+
+        if tensor.ndim == 2:
+            outputs = [row.contiguous() for row in tensor]
+        elif tensor.ndim == 3:
+            outputs = []
+            for row in tensor:
+                outputs.append(
+                    self._normalize_codes(
+                        row,
+                        code_selection=self.code_selection,
+                        num_selected_quantizers=self.num_selected_quantizers,
+                        codebook_size=self._infer_codebook_size(),
+                        num_semantic_quantizers=self._infer_num_semantic_quantizers(),
+                    )
+                )
+        else:
+            raise ValueError(
+                f"Unexpected Mimi batch code tensor shape {tuple(tensor.shape)}"
+            )
+
+        for codes in outputs:
+            self._validate_output_vocab(codes)
+        return outputs
 
     def _infer_codebook_size(self) -> int:
         tokenizer = self._get_tokenizer()

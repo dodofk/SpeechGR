@@ -3,6 +3,8 @@ dataset_name: asapp/slue-phase-2
 dataset_config: sqa5
 streaming: false
 decode_audio: true
+skip_existing_precompute: true
+force_recompute: false
 
 encoder:
   name: wavtokenizer

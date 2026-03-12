@@ -3,6 +3,8 @@ dataset_name: asapp/slue-phase-2
 dataset_config: sqa5
 streaming: false
 decode_audio: false
+skip_existing_precompute: true
+force_recompute: false
 
 encoder:
   name: mimi
@@ -12,6 +14,7 @@ encoder:
     target_sample_rate: 24000
     code_selection: semantic_only
     output_vocab_size: 2048
+    batch_size: 8
   question:
     params:
       model_name_or_path: ${encoder.params.model_name_or_path}
@@ -19,6 +22,7 @@ encoder:
       target_sample_rate: ${encoder.params.target_sample_rate}
       code_selection: ${encoder.params.code_selection}
       output_vocab_size: ${encoder.params.output_vocab_size}
+      batch_size: ${encoder.params.batch_size}
       audio_field: question_audio
       sample_id_field: question_id
   document:
@@ -28,5 +32,6 @@ encoder:
       target_sample_rate: ${encoder.params.target_sample_rate}
       code_selection: ${encoder.params.code_selection}
       output_vocab_size: ${encoder.params.output_vocab_size}
+      batch_size: ${encoder.params.batch_size}
       audio_field: document_audio
       sample_id_field: document_id

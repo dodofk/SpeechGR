@@ -1,4 +1,5 @@
 from types import SimpleNamespace
+from pathlib import Path
 
 from speechgr.cli import prepare_slue
 
@@ -44,3 +45,52 @@ def test_load_slue_dataset_uses_streaming_and_decode_flags(monkeypatch):
         ("question_audio", False),
         ("document_audio", False),
     ]
+
+
+class DummyEncoder:
+    def __init__(self):
+        self.calls = []
+
+    def cache_path(self, dataset_split: str, output_dir: str) -> Path:
+        return Path(output_dir) / f"{dataset_split}_dummy.pt"
+
+    def precompute(self, dataset_split: str, output_dir: str, dataset_split_data) -> None:
+        self.calls.append((dataset_split, output_dir, dataset_split_data))
+
+
+def test_precompute_split_skips_existing_cache(tmp_path):
+    encoder = DummyEncoder()
+    split_dir = tmp_path / "train"
+    split_dir.mkdir(parents=True)
+    (split_dir / "train_dummy.pt").write_text("cached")
+
+    ran = prepare_slue._precompute_split(
+        encoder,
+        "train",
+        [1, 2, 3],
+        split_dir,
+        skip_existing=True,
+        force_recompute=False,
+    )
+
+    assert ran is False
+    assert encoder.calls == []
+
+
+def test_precompute_split_force_recompute_overrides_skip(tmp_path):
+    encoder = DummyEncoder()
+    split_dir = tmp_path / "train"
+    split_dir.mkdir(parents=True)
+    (split_dir / "train_dummy.pt").write_text("cached")
+
+    ran = prepare_slue._precompute_split(
+        encoder,
+        "train",
+        [1, 2, 3],
+        split_dir,
+        skip_existing=True,
+        force_recompute=True,
+    )
+
+    assert ran is True
+    assert len(encoder.calls) == 1

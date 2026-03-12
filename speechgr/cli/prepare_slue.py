@@ -124,19 +124,47 @@ def _corpus_iterator(dataset) -> Iterator[Mapping[str, object]]:
 
 
 def _precompute_split(
-    encoder, split: str, dataset_split, output_dir: Path
-) -> None:
+    encoder,
+    split: str,
+    dataset_split,
+    output_dir: Path,
+    *,
+    skip_existing: bool,
+    force_recompute: bool,
+) -> bool:
     logger.info("Starting question precompute split=%s output_dir=%s", split, output_dir)
+    cache_path = encoder.cache_path(split, str(output_dir))
+    if skip_existing and not force_recompute and cache_path.exists():
+        logger.info(
+            "Skipping question precompute split=%s because cache already exists at %s",
+            split,
+            cache_path,
+        )
+        return False
     encoder.precompute(split, str(output_dir), dataset_split)
     logger.info("Finished question precompute split=%s", split)
+    return True
 
 
 def _precompute_corpus(
-    encoder, dataset, output_dir: Path
-) -> None:
+    encoder,
+    dataset,
+    output_dir: Path,
+    *,
+    skip_existing: bool,
+    force_recompute: bool,
+) -> bool:
     logger.info("Starting corpus precompute output_dir=%s", output_dir)
+    cache_path = encoder.cache_path("corpus", str(output_dir))
+    if skip_existing and not force_recompute and cache_path.exists():
+        logger.info(
+            "Skipping corpus precompute because cache already exists at %s",
+            cache_path,
+        )
+        return False
     encoder.precompute("corpus", str(output_dir), _corpus_iterator(dataset))
     logger.info("Finished corpus precompute")
+    return True
 
 
 def _instantiate_encoder(name: str, params: Dict[str, object]):
@@ -179,7 +207,14 @@ def main(cfg: DictConfig) -> None:
     output_root = Path(cfg.output_root).resolve()
     csv_dir = _ensure_dir(output_root / "csv")
     precompute_dir = _ensure_dir(output_root / "precomputed")
+    skip_existing = bool(cfg.get("skip_existing_precompute", True))
+    force_recompute = bool(cfg.get("force_recompute", False))
     logger.info("Output root: %s", output_root)
+    logger.info(
+        "Precompute policy: skip_existing=%s force_recompute=%s",
+        skip_existing,
+        force_recompute,
+    )
 
     # 1. Write CSV manifests and gather corpus text.
     doc_texts: Dict[str, str] = {}
@@ -205,14 +240,27 @@ def main(cfg: DictConfig) -> None:
 
     for split in _SPLITS:
         split_dir = _ensure_dir(precompute_dir / split)
-        _precompute_split(question_encoder, split, dataset[split], split_dir)
+        _precompute_split(
+            question_encoder,
+            split,
+            dataset[split],
+            split_dir,
+            skip_existing=skip_existing,
+            force_recompute=force_recompute,
+        )
         question_encoder.clear_cache()
         cache_path = split_dir / f"{split}_{cfg.encoder.name}.pt"
         stats["question"][split] = _length_statistics(cache_path)
         logger.info("Length stats for question split=%s: %s", split, stats["question"][split])
 
     corpus_dir = _ensure_dir(precompute_dir / "corpus")
-    _precompute_corpus(document_encoder, dataset, corpus_dir)
+    _precompute_corpus(
+        document_encoder,
+        dataset,
+        corpus_dir,
+        skip_existing=skip_existing,
+        force_recompute=force_recompute,
+    )
     document_encoder.clear_cache()
     stats["corpus"] = _length_statistics(corpus_dir / f"corpus_{cfg.encoder.name}.pt")
     logger.info("Length stats for corpus: %s", stats["corpus"])
