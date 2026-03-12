@@ -86,11 +86,21 @@ class DiscreteInputT5(T5ForConditionalGeneration):
 
         with torch.no_grad():
             reference = self.shared.weight.detach()
-            mean = float(reference.mean().item())
-            std = float(reference.std(unbiased=False).item())
-            if std == 0.0:
-                std = float(getattr(self.config, "initializer_factor", 1.0))
-            self.discrete_input_embeddings.weight.normal_(mean=mean, std=std)
+            if reference.shape[0] == 0:
+                raise ValueError("Shared text embedding table must be non-empty")
+
+            device = reference.device
+            num_rows = self.discrete_input_embeddings.weight.shape[0]
+            sampled_indices = torch.randint(
+                low=0,
+                high=reference.shape[0],
+                size=(num_rows,),
+                device=device,
+            )
+            sampled_rows = reference.index_select(0, sampled_indices).to(
+                self.discrete_input_embeddings.weight.device
+            )
+            self.discrete_input_embeddings.weight.copy_(sampled_rows)
 
     def _embed_discrete_inputs(self, input_ids: torch.Tensor) -> torch.Tensor:
         if input_ids.numel() == 0:

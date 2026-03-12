@@ -20,14 +20,19 @@ def _tiny_t5_config() -> T5Config:
     )
 
 
-def test_discrete_input_t5_initializes_from_text_embedding_statistics():
+def test_discrete_input_t5_initializes_from_sampled_text_rows():
     model = DiscreteInputT5(_tiny_t5_config(), discrete_vocab_size=9)
     with torch.no_grad():
-        model.shared.weight.fill_(0.25)
+        model.shared.weight.copy_(
+            torch.arange(model.shared.weight.numel(), dtype=torch.float32).reshape_as(
+                model.shared.weight
+            )
+        )
     model.initialize_discrete_input_embeddings("random_text")
 
-    discrete_mean = float(model.discrete_input_embeddings.weight.mean().item())
-    assert abs(discrete_mean - 0.25) < 0.2
+    reference_rows = {tuple(row.tolist()) for row in model.shared.weight}
+    for row in model.discrete_input_embeddings.weight:
+        assert tuple(row.tolist()) in reference_rows
 
 
 def test_discrete_input_t5_rejects_out_of_range_input_ids():
