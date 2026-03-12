@@ -279,3 +279,46 @@ def test_mimi_encoder_batch_path_accepts_single_sample_2d_codes(tmp_path):
     encoder.precompute("train", str(tmp_path), samples)
     loaded = encoder.load_feature("train", str(tmp_path), "q1")
     assert torch.equal(loaded["codes"], torch.tensor([1, 2, 3], dtype=torch.long))
+
+
+def test_mimi_encoder_trims_batched_2d_outputs_per_sample(tmp_path):
+    class TwoDimBatchTokenizer:
+        codebook_size = 8
+        num_semantic_quantizers = 1
+        frame_rate = 12.5
+
+        def __call__(self, waveform, *, sampling_rate: int):
+            del sampling_rate
+            if isinstance(waveform, list):
+                assert len(waveform) == 2
+                return {
+                    "codes": torch.tensor(
+                        [
+                            [1, 2],
+                            [3, 4],
+                        ],
+                        dtype=torch.long,
+                    )
+                }
+            raise AssertionError("Expected batched list input")
+
+    encoder = MimiEncoder(
+        tokenizer=TwoDimBatchTokenizer(),
+        audio_field="question_audio",
+        sample_id_field="question_id",
+        batch_size=2,
+    )
+
+    audio_long = np.zeros(3_200, dtype=np.float32)  # expected code len = 2
+    audio_short = np.zeros(1_920, dtype=np.float32)  # expected code len = 1
+    samples = [
+        {"question_id": "q1", "question_audio": {"array": audio_long, "sampling_rate": 24_000}},
+        {"question_id": "q2", "question_audio": {"array": audio_short, "sampling_rate": 24_000}},
+    ]
+
+    encoder.precompute("train", str(tmp_path), samples)
+
+    loaded_q1 = encoder.load_feature("train", str(tmp_path), "q1")
+    loaded_q2 = encoder.load_feature("train", str(tmp_path), "q2")
+    assert torch.equal(loaded_q1["codes"], torch.tensor([1, 2], dtype=torch.long))
+    assert torch.equal(loaded_q2["codes"], torch.tensor([3], dtype=torch.long))

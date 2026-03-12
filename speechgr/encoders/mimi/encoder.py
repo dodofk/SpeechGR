@@ -323,7 +323,10 @@ class MimiEncoder(ModalityEncoder):
                     )
                 ]
             else:
-                outputs = [row.contiguous() for row in tensor]
+                outputs = []
+                for waveform, row in zip(waveforms, tensor):
+                    expected_len = self._expected_code_length(int(waveform.shape[-1]))
+                    outputs.append(row[:expected_len].contiguous())
         elif tensor.ndim == 3:
             outputs = []
             for waveform, row in zip(waveforms, tensor):
