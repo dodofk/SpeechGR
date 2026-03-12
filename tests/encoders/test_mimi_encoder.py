@@ -167,6 +167,7 @@ def test_mimi_encoder_precompute_batches_samples(tmp_path):
     class BatchTokenizer:
         codebook_size = 8
         num_semantic_quantizers = 1
+        frame_rate = 12.5
 
         def __init__(self):
             self.batch_sizes = []
@@ -203,3 +204,45 @@ def test_mimi_encoder_precompute_batches_samples(tmp_path):
     encoder.precompute("train", str(tmp_path), samples)
 
     assert tokenizer.batch_sizes == [2, 1]
+
+
+def test_mimi_encoder_trims_padded_batch_outputs_per_sample(tmp_path):
+    class BatchTokenizer:
+        codebook_size = 8
+        num_semantic_quantizers = 1
+        frame_rate = 12.5
+
+        def __call__(self, waveform, *, sampling_rate: int):
+            assert sampling_rate == 24_000
+            if isinstance(waveform, list):
+                return {
+                    "codes": torch.tensor(
+                        [
+                            [[1, 2]],
+                            [[3, 4]],
+                        ],
+                        dtype=torch.long,
+                    )
+                }
+            return {"codes": torch.tensor([[[9, 10]]], dtype=torch.long)}
+
+    encoder = MimiEncoder(
+        tokenizer=BatchTokenizer(),
+        audio_field="question_audio",
+        sample_id_field="question_id",
+        batch_size=2,
+    )
+
+    audio_long = np.zeros(3_200, dtype=np.float32)  # ceil(3200 * 12.5 / 24000) = 2
+    audio_short = np.zeros(1_920, dtype=np.float32)  # ceil(1920 * 12.5 / 24000) = 1
+    samples = [
+        {"question_id": "q1", "question_audio": {"array": audio_long, "sampling_rate": 24_000}},
+        {"question_id": "q2", "question_audio": {"array": audio_short, "sampling_rate": 24_000}},
+    ]
+
+    encoder.precompute("train", str(tmp_path), samples)
+
+    loaded_q1 = encoder.load_feature("train", str(tmp_path), "q1")
+    loaded_q2 = encoder.load_feature("train", str(tmp_path), "q2")
+    assert torch.equal(loaded_q1["codes"], torch.tensor([1, 2], dtype=torch.long))
+    assert torch.equal(loaded_q2["codes"], torch.tensor([3], dtype=torch.long))

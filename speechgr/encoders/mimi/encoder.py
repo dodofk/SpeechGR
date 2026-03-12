@@ -63,6 +63,7 @@ class _TransformersMimiTokenizer:
         self.num_semantic_quantizers = int(
             getattr(self.config, "num_semantic_quantizers", 1)
         )
+        self.frame_rate = float(getattr(self.config, "frame_rate", 12.5))
         self.feature_extractor = AutoFeatureExtractor.from_pretrained(
             model_name_or_path,
             trust_remote_code=True,
@@ -105,7 +106,7 @@ class _TransformersMimiTokenizer:
 
         with torch.no_grad():
             input_values = inputs.get("input_values")
-            padding_mask = inputs.get("attention_mask")
+            padding_mask = inputs.get("padding_mask")
             if isinstance(padding_mask, torch.Tensor):
                 padding_mask = padding_mask.to(self.device)
             if hasattr(self.model, "encode") and input_values is not None:
@@ -314,16 +315,16 @@ class MimiEncoder(ModalityEncoder):
             outputs = [row.contiguous() for row in tensor]
         elif tensor.ndim == 3:
             outputs = []
-            for row in tensor:
-                outputs.append(
-                    self._normalize_codes(
-                        row,
-                        code_selection=self.code_selection,
-                        num_selected_quantizers=self.num_selected_quantizers,
-                        codebook_size=self._infer_codebook_size(),
-                        num_semantic_quantizers=self._infer_num_semantic_quantizers(),
-                    )
+            for waveform, row in zip(waveforms, tensor):
+                codes = self._normalize_codes(
+                    row,
+                    code_selection=self.code_selection,
+                    num_selected_quantizers=self.num_selected_quantizers,
+                    codebook_size=self._infer_codebook_size(),
+                    num_semantic_quantizers=self._infer_num_semantic_quantizers(),
                 )
+                expected_len = self._expected_code_length(int(waveform.shape[-1]))
+                outputs.append(codes[:expected_len].contiguous())
         else:
             raise ValueError(
                 f"Unexpected Mimi batch code tensor shape {tuple(tensor.shape)}"
@@ -340,6 +341,26 @@ class MimiEncoder(ModalityEncoder):
     def _infer_num_semantic_quantizers(self) -> int:
         tokenizer = self._get_tokenizer()
         return int(getattr(tokenizer, "num_semantic_quantizers", 1))
+
+    def _infer_frame_rate(self) -> float:
+        tokenizer = self._get_tokenizer()
+        return float(getattr(tokenizer, "frame_rate", 12.5))
+
+    def _expected_code_length(self, num_samples: int) -> int:
+        num_frames = max(
+            1,
+            int(np.ceil(float(num_samples) * self._infer_frame_rate() / float(self.target_sample_rate))),
+        )
+        selection = self.code_selection.strip().lower()
+        if selection == "semantic_only":
+            multiplier = max(1, self._infer_num_semantic_quantizers())
+        elif selection == "first_n":
+            multiplier = max(1, int(self.num_selected_quantizers or 1))
+        elif selection == "all_flattened":
+            multiplier = max(1, int(getattr(self._get_tokenizer(), "num_quantizers", 1)))
+        else:
+            multiplier = 1
+        return num_frames * multiplier
 
     def _validate_output_vocab(self, codes: torch.Tensor) -> None:
         if self.output_vocab_size is None or codes.numel() == 0:
