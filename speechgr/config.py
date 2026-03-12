@@ -31,6 +31,10 @@ def build_training_arguments(cfg: Union[DictConfig, Dict[str, Any]]) -> Training
     """Create :class:`~transformers.TrainingArguments` from a config mapping."""
 
     cfg_dict = _to_dict(cfg)
+    # Transformers >= 5.x renamed `evaluation_strategy` to `eval_strategy`.
+    # Keep older repo configs working by translating automatically.
+    if "evaluation_strategy" in cfg_dict and "eval_strategy" not in cfg_dict:
+        cfg_dict["eval_strategy"] = cfg_dict.pop("evaluation_strategy")
     output_dir = Path(cfg_dict.get("output_dir", "models"))
     output_dir.mkdir(parents=True, exist_ok=True)
     return TrainingArguments(**cfg_dict)
