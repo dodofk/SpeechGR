@@ -8,15 +8,11 @@ The Mimi prepare config uses the safer multi-pass path:
 
 - `streaming: false`
 - `decode_audio: false`
+- config default device is `cpu`
 
 This means `prepare_slue` uses the non-streaming Hugging Face dataset path while still keeping audio decoding disabled. This is important because the current prepare pipeline scans the dataset multiple times: once to write split CSVs and again to precompute question and corpus caches. Streaming in this multi-pass setup can multiply network I/O and make the run slower rather than faster.
 
-```bash
-uv run python -m speechgr.cli.prepare_slue \
-  --config-name slue_sqa5_mimi
-```
-
-On the CUDA server, use:
+On the CUDA server, you should explicitly override the encoder device to `cuda`:
 
 ```bash
 uv run python -m speechgr.cli.prepare_slue \
