@@ -1,3 +1,5 @@
+# @package _global_
+
 defaults:
   - override /task: qformer
   - override /data@data: slue_sqa5_whisper

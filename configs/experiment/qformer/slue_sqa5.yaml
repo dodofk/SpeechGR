@@ -1,3 +1,5 @@
+# @package _global_
+
 defaults:
   - override /task: qformer
   - _self_

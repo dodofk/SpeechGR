@@ -1,3 +1,5 @@
+# @package _global_
+
 defaults:
   - override /task: t5_pretrain
   - _self_

@@ -1,3 +1,5 @@
+# @package _global_
+
 defaults:
   - override /data: slue_sqa5_text
   - override /model: flan_t5_base

@@ -1,5 +1,6 @@
 defaults:
   - task: retrieval
+  - optional experiment: null
   - _self_
 
 seed: 42
