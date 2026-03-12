@@ -68,7 +68,35 @@ Expected outputs:
 - `outputs/slue_sqa5_mimi/docids/valid_paths.json`
 - `outputs/slue_sqa5_mimi/docids/docid_diagnostics.json`
 
-## 3. Train hierarchical retrieval baseline
+## 3. Analyze DocID distribution before training
+
+Print the cluster-balance report:
+
+```bash
+uv run python speechgr/docid/analysis.py \
+  --docid-map outputs/slue_sqa5_mimi/docids/docid_map.json
+```
+
+Save the report to JSON as well:
+
+```bash
+uv run python speechgr/docid/analysis.py \
+  --docid-map outputs/slue_sqa5_mimi/docids/docid_map.json \
+  --output-json outputs/slue_sqa5_mimi/docids/docid_distribution.json
+```
+
+Things to inspect in the printed report:
+
+- `num_clusters`
+- `mean_cluster_size`
+- `median_cluster_size`
+- `max_cluster_size`
+- `singleton_cluster_rate`
+- `largest_cluster_share`
+- `cluster_entropy`
+- `top_clusters`
+
+## 4. Train hierarchical retrieval baseline
 
 ```bash
 uv run python -m speechgr.cli.train \
@@ -93,7 +121,7 @@ uv run python -m speechgr.cli.train \
   training.training_args.save_steps=25
 ```
 
-## 4. Pre-flight checks on the CUDA server
+## 5. Pre-flight checks on the CUDA server
 
 Before launching a long run, confirm:
 
