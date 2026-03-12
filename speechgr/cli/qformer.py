@@ -234,11 +234,11 @@ def run(cfg: DictConfig) -> None:
 
     trainer = DSITrainer(
         model=model,
-        tokenizer=tokenizer,
         args=training_args,
         train_dataset=train_ds,
         eval_dataset=valid_ds,
         data_collator=collator,
+        processing_class=tokenizer,
         compute_metrics=metrics_fn,
         id_max_length=qformer_cfg.id_max_length,
         restrict_decode_vocab=restrict_vocab,

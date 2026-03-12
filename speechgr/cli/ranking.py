@@ -148,11 +148,11 @@ def run(cfg: DictConfig) -> None:
 
     trainer = DSIRankingTrainer(
         model=model,
-        tokenizer=tokenizer,
         args=training_args,
         train_dataset=train_dataset,
         eval_dataset=eval_dataset,
         data_collator=IndexingCollator(tokenizer, padding="longest"),
+        processing_class=tokenizer,
         compute_metrics=metrics_fn,
         id_max_length=ranking_cfg.id_max_length,
         restrict_decode_vocab=restrict_decode_vocab,

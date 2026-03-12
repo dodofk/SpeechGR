@@ -459,11 +459,11 @@ def run(cfg: DictConfig) -> None:
 
     trainer = DSITrainer(
         model=model,
-        tokenizer=tokenizer,
         args=training_args,
         train_dataset=train_dataset,
         eval_dataset=valid_dataset,
         data_collator=collator,
+        processing_class=tokenizer,
         compute_metrics=make_compute_metrics(
             fast_tokenizer,
             train_dataset.valid_ids,
