@@ -108,6 +108,32 @@ uv run python -m speechgr.cli.train \
   training.training_args.run_name=slue_sqa5-mimi-hierarchical-flan-t5-base
 ```
 
+## 5. Train atomic retrieval baseline
+
+Use this as the direct comparison against the hierarchical DocID run.
+
+```bash
+uv run python -m speechgr.cli.train \
+  experiment=retrieval/slue_sqa5_mimi_atomic \
+  data.dataset_path=outputs/slue_sqa5_mimi/csv \
+  data.precompute_root=outputs/slue_sqa5_mimi/precomputed \
+  training.training_args.output_dir=models/slue_sqa5-mimi-atomic-flan-t5-base \
+  training.training_args.run_name=slue_sqa5-mimi-atomic-flan-t5-base
+```
+
+Recommended short smoke run before a longer atomic baseline:
+
+```bash
+uv run python -m speechgr.cli.train \
+  experiment=retrieval/slue_sqa5_mimi_atomic \
+  data.dataset_path=outputs/slue_sqa5_mimi/csv \
+  data.precompute_root=outputs/slue_sqa5_mimi/precomputed \
+  training.training_args.max_steps=50 \
+  training.training_args.eval_steps=25 \
+  training.training_args.save_steps=25 \
+  training.training_args.logging_steps=1
+```
+
 Recommended short smoke run before a long CUDA job:
 
 ```bash
@@ -121,7 +147,7 @@ uv run python -m speechgr.cli.train \
   training.training_args.save_steps=25
 ```
 
-## 5. Pre-flight checks on the CUDA server
+## 6. Pre-flight checks on the CUDA server
 
 Before launching a long run, confirm:
 
