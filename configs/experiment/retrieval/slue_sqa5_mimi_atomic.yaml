@@ -1,0 +1,60 @@
+# @package _global_
+
+defaults:
+  - override /task: retrieval
+  - _self_
+
+model:
+  model_name: "google/flan-t5-base"
+  model_path: null
+  discrete_input_embedding_init: random_text
+
+data:
+  dataset_path: ${oc.env:SLUE_SQA5_MIMI_CSV,outputs/slue_sqa5_mimi/csv}
+  precompute_root: ${oc.env:SLUE_SQA5_MIMI_CACHE,outputs/slue_sqa5_mimi/precomputed}
+  modality: discrete_precomputed
+  encoder_name: mimi
+  codebook_size: 2048
+  discrete_code_num: 2048
+  special_token: 2048
+  train_atomic: true
+  include_corpus: true
+  include_corpus_splits:
+    - train
+  corpus_passage_seconds: 30
+  corpus_stride_seconds: 15
+  query_min_span_seconds: 3
+  query_max_span_seconds: 8
+  query_max_length: 512
+  corpus_max_length: 512
+
+training:
+  training_args:
+    output_dir: "models/slue_sqa5-mimi-atomic-flan-t5-base"
+    run_name: "slue_sqa5-mimi-atomic-flan-t5-base"
+    learning_rate: 1.0e-4
+    warmup_steps: 1000
+    per_device_train_batch_size: 8
+    per_device_eval_batch_size: 8
+    evaluation_strategy: "steps"
+    eval_steps: 500
+    max_steps: 10000
+    save_strategy: "steps"
+    save_steps: 500
+    save_total_limit: 3
+    load_best_model_at_end: true
+    gradient_accumulation_steps: 4
+    logging_steps: 50
+    dataloader_num_workers: 0
+    dataloader_drop_last: false
+    metric_for_best_model: "Hits@20"
+    greater_is_better: true
+    save_safetensors: true
+
+run:
+  max_length: 512
+  id_max_length: 8
+  top_k: 10
+  num_return_sequences: 10
+  generation_max_length: 4
+  run_notes: "Mimi semantic-only atomic DocID retrieval baseline"

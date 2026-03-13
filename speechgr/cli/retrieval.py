@@ -68,6 +68,17 @@ def _maybe_register_docid_tokens(tokenizer, fast_tokenizer, model, valid_ids: It
     return added
 
 
+def _dataset_breakdown(dataset) -> dict[str, int]:
+    query_count = int(getattr(dataset, "query_len", len(dataset)))
+    total_count = len(dataset)
+    corpus_count = max(0, total_count - query_count)
+    return {
+        "queries": query_count,
+        "corpus": corpus_count,
+        "total": total_count,
+    }
+
+
 def make_compute_metrics(
     tokenizer,
     valid_ids,
@@ -481,6 +492,19 @@ def run(cfg: DictConfig) -> None:
         run_cfg.max_length,
         shared_text_encoder,
     )
+
+    train_breakdown = _dataset_breakdown(train_dataset)
+    valid_breakdown = _dataset_breakdown(valid_dataset)
+    logger.info("Train dataset breakdown: %s", train_breakdown)
+    logger.info("Validation dataset breakdown: %s", valid_breakdown)
+    if train_breakdown["corpus"] > 0:
+        logger.info(
+            "Train split includes corpus indexing examples, so training mixes query->DocID and doc->DocID supervision"
+        )
+    else:
+        logger.info(
+            "Train split does not include corpus indexing examples, so training is query->DocID only"
+        )
 
     _maybe_register_docid_tokens(
         tokenizer,
