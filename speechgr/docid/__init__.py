@@ -6,6 +6,11 @@ from .builder import (
     HierarchicalDocIdBuilderConfig,
     build_and_write_docids,
 )
+from .analysis import (
+    DocIdDistributionReport,
+    analyze_docid_map,
+    analyze_docid_map_path,
+)
 from .passage_embeddings import (
     PassageEmbeddingBuildResult,
     TfidfPassageEmbeddingConfig,
@@ -17,6 +22,9 @@ __all__ = [
     "HierarchicalDocIdBuilder",
     "HierarchicalDocIdBuilderConfig",
     "build_and_write_docids",
+    "DocIdDistributionReport",
+    "analyze_docid_map",
+    "analyze_docid_map_path",
     "PassageEmbeddingBuildResult",
     "TfidfPassageEmbeddingConfig",
     "build_tfidf_passage_embeddings",
