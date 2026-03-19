@@ -5,9 +5,9 @@ from __future__ import annotations
 import argparse
 import csv
 import json
-import math
 import random
 import shutil
+import sys
 from pathlib import Path
 from typing import Dict, List, Tuple
 
@@ -35,6 +35,8 @@ def _load_cache(path: Path) -> Dict[str, Dict[str, torch.Tensor]]:
 
 
 def _symlink_or_copy(src: Path, dst: Path) -> None:
+    if not src.exists():
+        raise FileNotFoundError(f"Expected source cache at '{src}'")
     dst.parent.mkdir(parents=True, exist_ok=True)
     if dst.exists() or dst.is_symlink():
         dst.unlink()
@@ -129,6 +131,7 @@ def main() -> None:
     train_rows = _load_csv(csv_root / "train.csv")
     corpus_rows = _load_csv(csv_root / "corpus.csv")
     train_doc_ids = {str(row["document_id"]) for row in train_rows}
+    existing_query_ids = {str(row["question_id"]) for row in train_rows}
     corpus_cache = _load_cache(precompute_root / "corpus" / f"corpus_{args.encoder_name}.pt")
     train_cache = _load_cache(precompute_root / "train" / f"train_{args.encoder_name}.pt")
 
@@ -157,6 +160,10 @@ def main() -> None:
         )
         for span_idx, (start, end, score) in enumerate(spans):
             pseudo_id = f"pq_{doc_id}_{span_idx:03d}"
+            collision_idx = span_idx
+            while pseudo_id in existing_query_ids or pseudo_id in pseudo_cache:
+                collision_idx += 1
+                pseudo_id = f"pq_{doc_id}_{collision_idx:03d}"
             pseudo_codes = codes.reshape(-1)[start:end].clone().long()
             pseudo_cache[pseudo_id] = {"codes": pseudo_codes}
             pseudo_rows.append(
