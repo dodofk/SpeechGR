@@ -1,4 +1,7 @@
 wandb/
+.venv/
+.code/
+.DS_Store
 __pycache__/
 *.pyc
 *.pyo
@@ -17,7 +20,10 @@ __pycache__/
 
 ckpts
 *.pt
-models
+*.zip
+models/
+outputs/
+speechgr.egg-info/
 speech-content-encoder/hubert_22
 speech-content-encoder/hubert_22_km_2000
 

@@ -1,0 +1,35 @@
+[project]
+name = "speechgr"
+version = "0.1.0"
+description = "End-to-end speech generative retrieval (thesis baseline)"
+readme = "README.md"
+requires-python = ">=3.10,<3.13"
+authors = [{ name = "Yu-Hsiang Liu" }]
+dependencies = [
+    "torch",
+    "torchaudio",
+    "transformers==4.44.2",
+    "datasets",
+    "accelerate",
+    "evaluate",
+    "rouge-score",
+    "sentencepiece",
+    "librosa",
+    "soundfile",
+    "h5py",
+    "joblib",
+    "numpy",
+    "pandas",
+    "tqdm",
+    "wandb",
+]
+
+[project.optional-dependencies]
+dev = ["pytest", "black", "isort"]
+
+[build-system]
+requires = ["setuptools", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.uv]
+managed = true
