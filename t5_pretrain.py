@@ -541,6 +541,17 @@ def main() -> None:
         wandb.init(**wandb_init_args)
 
     logger.info("Training/evaluation parameters: %s", training_args)
+    logger.info(
+        "Resolved Trainer device: device=%s, n_gpu=%s, local_rank=%s, "
+        "use_cpu=%s, no_cuda=%s, bf16=%s, fp16=%s",
+        training_args.device,
+        training_args.n_gpu,
+        training_args.local_rank,
+        getattr(training_args, "use_cpu", None),
+        getattr(training_args, "no_cuda", None),
+        training_args.bf16,
+        training_args.fp16,
+    )
 
     # 1. Load the model and tokenizer.
     model_load_path = model_args.model_path or model_args.model_name_or_path

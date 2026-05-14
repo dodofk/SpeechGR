@@ -46,6 +46,36 @@ if [[ -n "${HF_CHECKPOINT_REPO_ID:-}" ]] && ! is_false "${SAVE_CHECKPOINTS:-True
   fi
 fi
 
+if ! is_false "${REQUIRE_CUDA:-True}"; then
+  python3 - <<'PY'
+import os
+import sys
+
+import torch
+
+visible = os.environ.get("CUDA_VISIBLE_DEVICES", "<unset>")
+accelerate_cpu = os.environ.get("ACCELERATE_USE_CPU", "")
+print(f"[cuda-preflight] CUDA_VISIBLE_DEVICES={visible}")
+print(f"[cuda-preflight] ACCELERATE_USE_CPU={accelerate_cpu or '<unset>'}")
+print(f"[cuda-preflight] torch={torch.__version__} torch.version.cuda={torch.version.cuda}")
+print(f"[cuda-preflight] torch.cuda.is_available()={torch.cuda.is_available()}")
+print(f"[cuda-preflight] torch.cuda.device_count()={torch.cuda.device_count()}")
+if accelerate_cpu.lower() in {"1", "true", "yes", "on"}:
+    sys.exit(
+        "[cuda-preflight] ACCELERATE_USE_CPU is forcing CPU. "
+        "Run: unset ACCELERATE_USE_CPU"
+    )
+if not torch.cuda.is_available():
+    sys.exit(
+        "[cuda-preflight] CUDA is not available. Select a GPU with "
+        "CUDA_VISIBLE_DEVICES=0 or CUDA_VISIBLE_DEVICES=1. "
+        "Do not use CUDA_VISIBLE_DEVICES=-1 unless you want CPU. "
+        "For an intentional CPU debug run, set REQUIRE_CUDA=False."
+    )
+print(f"[cuda-preflight] selected_device={torch.cuda.get_device_name(0)}")
+PY
+fi
+
 python3 t5_pretrain.py \
   --model_name_or_path "google/flan-t5-base" \
   --learning_rate 0.0001 \
@@ -65,6 +95,7 @@ python3 t5_pretrain.py \
   --evaluation_strategy steps \
   --eval_steps 10000 \
   --max_steps 500000 \
+  --use_cpu False \
   --project "audio-t5-pretrain" \
   --output_dir "ckpts/audio-t5-pt-flant5-base-c500-l22" \
   --per_device_train_batch_size 6 \
