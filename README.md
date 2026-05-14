@@ -52,7 +52,7 @@ export HF_TOKEN="..."
 
 # Optional: mirror latest/ and best/ checkpoints to a public HF model repo.
 # Leave HF_CHECKPOINT_REPO_ID unset to disable Hub checkpoint mirroring.
-export HF_CHECKPOINT_REPO_ID="your-hf-user/speechgr-unit-t5-live"
+export HF_CHECKPOINT_REPO_ID="your-hf-user/unit_t5_live"
 export HF_CHECKPOINT_PRIVATE="False"
 export HF_CHECKPOINT_MODE="model"
 
@@ -61,6 +61,16 @@ export HF_HOME="/data/$USER/hf_cache/speechgr"
 mkdir -p "$HF_HOME"
 
 bash run_t5_pt.sh
+```
+
+Before launching a long unit-T5 run, this verifies the Hub repo can be created
+and receive `latest/` and `best/` smoke checkpoints:
+
+```bash
+python3 scripts/smoke_train_units.py \
+  --mode hub \
+  --hf-checkpoint-repo-id "$HF_CHECKPOINT_REPO_ID" \
+  --max-steps 2
 ```
 
 Useful switches:

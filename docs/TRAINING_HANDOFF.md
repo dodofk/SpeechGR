@@ -147,8 +147,17 @@ With public Hugging Face latest/best monitoring:
 
 ```bash
 HF_TOKEN=... \
-HF_CHECKPOINT_REPO_ID=dodofk/speechgr-unit-t5-live \
+HF_CHECKPOINT_REPO_ID=dodofk/unit_t5_live \
 bash run_t5_pt.sh
+```
+
+Smoke-test Hub latest/best upload before a long run:
+
+```bash
+python3 scripts/smoke_train_units.py \
+  --mode hub \
+  --hf-checkpoint-repo-id "$HF_CHECKPOINT_REPO_ID" \
+  --max-steps 2
 ```
 
 ## Debug Runs Without Saving
