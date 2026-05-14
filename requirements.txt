@@ -1,4 +1,3 @@
-# Managed by uv via pyproject.toml; retained for reference only.
 torch
 torchaudio
 joblib
@@ -9,10 +8,10 @@ wandb
 sentencepiece
 transformers==4.44.2
 datasets
+huggingface_hub
 accelerate
 librosa
 soundfile
 h5py
 evaluate
-rouge-score
-einops
+rouge-score # for qg evaluation

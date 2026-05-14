@@ -1,7 +1,0 @@
-dataset_path: ${oc.env:SLUE_SQA5_DATASET_PATH,${hydra:runtime.cwd}/outputs/slue_wavtok/csv}
-code_path: ${oc.env:SLUE_SQA5_CODE_PATH,${hydra:runtime.cwd}/outputs/slue_wavtok/precomputed}
-lookup_file_name: null
-special_token: 32000
-discrete_code_num: 500
-train_atomic: false
-atomic_offset: 50
