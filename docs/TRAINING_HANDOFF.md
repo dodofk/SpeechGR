@@ -48,10 +48,11 @@ uv venv --python 3.12
 uv pip install -r requirements.txt
 ```
 
-Optional shared cache for servers:
+Recommended project-specific cache for servers:
 
 ```bash
-export HF_HOME=/path/to/shared/hf_cache
+export HF_HOME=/data/$USER/hf_cache/speechgr
+mkdir -p "$HF_HOME"
 ```
 
 ## Verify Before Training

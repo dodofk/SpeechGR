@@ -56,8 +56,9 @@ export HF_CHECKPOINT_REPO_ID="your-hf-user/speechgr-unit-t5-live"
 export HF_CHECKPOINT_PRIVATE="False"
 export HF_CHECKPOINT_MODE="model"
 
-# Optional shared cache location on a cluster/server.
-export HF_HOME="/data/hf_cache"
+# Recommended: use a project-specific cache to avoid cross-project cache issues.
+export HF_HOME="/data/$USER/hf_cache/speechgr"
+mkdir -p "$HF_HOME"
 
 bash run_t5_pt.sh
 ```
@@ -82,7 +83,9 @@ export HF_TOKEN="..."
 export HF_CHECKPOINT_REPO_ID="your-hf-user/speechgr-gr-live"
 export HF_CHECKPOINT_PRIVATE="False"
 export HF_CHECKPOINT_MODE="model"
-export HF_HOME="/data/hf_cache"
+# Recommended: keep SpeechGR cache separate from other projects.
+export HF_HOME="/data/$USER/hf_cache/speechgr"
+mkdir -p "$HF_HOME"
 
 # If your unit-pretrained checkpoint is somewhere else, override it here.
 export MODEL_PATH="/path/to/audio-t5-pt/checkpoint-or-best"
