@@ -26,7 +26,13 @@ from pathlib import Path
 import numpy as np
 from tqdm import tqdm
 from hub_checkpoint import HubCheckpointArguments, build_hub_checkpoint_callbacks
-from unit_store import PackedUnitStore, load_packed_store, resolve_unit_code_path
+from unit_store import (
+    DEFAULT_SLUE_UNIT_HF_PATH,
+    PACKED_SLUE_PATTERNS,
+    PackedUnitStore,
+    load_packed_store,
+    resolve_unit_code_path,
+)
 from unit_token_lookup import (
     DEFAULT_LOOKUP_SOURCE_CSV,
     DEFAULT_LOOKUP_TEXT_COLUMN,
@@ -225,7 +231,7 @@ class DiscreteCodeDataset(Dataset):
         self,
         max_length: int = 512,
         chunk_offset: int = 20,
-        code_dir: str = "/home/ricky/dodofk/dataset/ll6k_code_l22_c500",
+        code_dir: str = DEFAULT_SLUE_UNIT_HF_PATH,
         discrete_code_num: int = 500,
         split: str = "train",
         token_file: Optional[str] = DEFAULT_TOKEN_LOOKUP_PATH,
@@ -239,15 +245,21 @@ class DiscreteCodeDataset(Dataset):
         max_sentinels: int = 100,
     ):
         self.discrete_code_num: int = discrete_code_num
-        self.code_dir: str = resolve_unit_code_path(code_dir)
+        self.code_dir: str = resolve_unit_code_path(
+            code_dir,
+            allow_patterns=PACKED_SLUE_PATTERNS,
+        )
         self.max_length: int = max_length
-        self.packed_store = self._load_store(self.code_dir)
+        self.packed_stores = self._load_stores(self.code_dir)
         self.code_files: List[str] = []
-        self.record_ids: List[str] = []
-        if self.packed_store is None:
+        self.record_items: List[Tuple[int, str]] = []
+        if not self.packed_stores:
             self.code_files = sorted(glob.glob(os.path.join(self.code_dir, "*.code")))
         else:
-            self.record_ids = sorted(self.packed_store.ids)
+            for store_idx, store in enumerate(self.packed_stores):
+                self.record_items.extend(
+                    (store_idx, record_id) for record_id in sorted(store.ids)
+                )
         # debug only to keep the code small
         self.chunk_offset: int = chunk_offset
         self.validation_fraction = validation_fraction
@@ -258,9 +270,9 @@ class DiscreteCodeDataset(Dataset):
         self.lookup_text_column = lookup_text_column
         
         assert split in ["train", "val"], "split must be either train or val"
-        if self.packed_store is None and not self.code_files:
+        if not self.packed_stores and not self.code_files:
             raise ValueError(
-                f"No .code files or packed librispeech.npz found under {code_dir}"
+                f"No .code files or packed .npz unit stores found under {code_dir}"
             )
         if not 0.0 < self.validation_fraction < 1.0:
             raise ValueError("validation_fraction must be between 0 and 1")
@@ -284,10 +296,28 @@ class DiscreteCodeDataset(Dataset):
         self.codes: List[np.ndarray] = self.build_codes()
     
     @staticmethod
-    def _load_store(code_dir: str) -> Optional[PackedUnitStore]:
+    def _load_stores(code_dir: str) -> List[PackedUnitStore]:
         if code_dir.endswith(".npz"):
-            return load_packed_store(code_dir)
-        return load_packed_store(os.path.join(code_dir, "librispeech.npz"))
+            store = load_packed_store(code_dir)
+            return [store] if store is not None else []
+
+        stores: List[PackedUnitStore] = []
+        for filename in [
+            "librispeech.npz",
+            "documents.npz",
+            "train.npz",
+            "validation.npz",
+            "test.npz",
+            "verified_test.npz",
+        ]:
+            store = load_packed_store(os.path.join(code_dir, filename))
+            if store is not None:
+                logging.info(
+                    "Loaded packed unit store %s",
+                    os.path.join(code_dir, filename),
+                )
+                stores.append(store)
+        return stores
 
     def _load_or_build_code_lookup(self) -> np.ndarray:
         if self.token_file and Path(self.token_file).exists():
@@ -306,7 +336,7 @@ class DiscreteCodeDataset(Dataset):
         return lookup
 
     def _split_items(self) -> List[str]:
-        items = self.record_ids if self.packed_store is not None else self.code_files
+        items = self.record_items if self.packed_stores else self.code_files
         split_idx = int(round((1.0 - self.validation_fraction) * len(items)))
         split_idx = min(max(split_idx, 1), len(items) - 1)
         if self.split == "train":
@@ -326,10 +356,11 @@ class DiscreteCodeDataset(Dataset):
         codes: List[np.ndarray] = []
         split_items = self._split_items()
         for item in tqdm(split_items, desc=f"Building codes for {self.split} set"):
-            if self.packed_store is None:
-                code = self._read_code_file(item)
+            if self.packed_stores:
+                store_idx, record_id = item
+                code = self.packed_stores[store_idx].get_code(record_id)
             else:
-                code = self.packed_store.get_code(item)
+                code = self._read_code_file(item)
             
             # convert code to tokens
             code = np.array([self.code_lookup[c] for c in code])
@@ -418,8 +449,10 @@ class DataTrainingArguments:
         default=20, metadata={"help": "Chunk offset for the code dataset"},
     )
     code_dir: str = field(
-        default="/home/ricky/dodofk/dataset/ll6k_code_l22_c500",
-        metadata={"help": "Directory to the code dataset"},
+        default=DEFAULT_SLUE_UNIT_HF_PATH,
+        metadata={
+            "help": "Directory, .npz file, or hf://datasets/... path for packed unit data"
+        },
     )
     token_file: Optional[str] = field(
         default=DEFAULT_TOKEN_LOOKUP_PATH,

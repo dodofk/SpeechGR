@@ -144,8 +144,16 @@ bash run.sh
 
 ## Launch Unit T5 Pretraining
 
+This pretrains directly on the packed SLUE-SQA5 unit dataset by default:
+
 ```bash
 bash run_t5_pt.sh
+```
+
+If you already materialized the packed unit dataset locally:
+
+```bash
+CODE_DIR=/data/slue_sqa_code_l22_c500 bash run_t5_pt.sh
 ```
 
 With public Hugging Face latest/best monitoring:

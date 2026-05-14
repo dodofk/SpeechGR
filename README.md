@@ -50,6 +50,10 @@ The unit-to-token lookup is generated automatically under `ckpts/token_lookups/`
 on first run and is saved into the unit-T5 checkpoint config. Keep that mapping
 consistent when continuing into QG or GR.
 
+By default this pretrains directly on the packed SLUE-SQA5 HuBERT unit dataset.
+Override `CODE_DIR` only if you have materialized the packed units somewhere
+else.
+
 ```bash
 export WANDB_API_KEY="..."
 export HF_TOKEN="..."
