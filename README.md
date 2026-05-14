@@ -24,7 +24,8 @@ On Joyboy, use the CUDA 12.1 PyTorch setup so the venv matches the current
 NVIDIA driver:
 
 ```bash
-bash scripts/setup_joyboy_cuda_env.sh
+# 你應該不用跑這個，沒有 env error 的話, 這是 4090 的 error
+bash scripts/setup_joyboy_cuda_env.sh 
 source .venv/bin/activate
 ```
 
@@ -38,9 +39,9 @@ python3 scripts/smoke_test_dataloaders.py
 ```
 
 If you are starting from newly extracted or legacy per-utterance unit files,
-pack them first and then point training commands at that packed directory:
+pack them first and then point training commands at that packed directory (ignore the following):
 
-```bash
+```bash 
 python3 scripts/pack_unit_codes.py \
   --input-dir /path/to/slue_sqa_code_l22_c500_legacy \
   --output-dir /data/slue_sqa_code_l22_c500
@@ -69,11 +70,11 @@ export HF_TOKEN="..."
 
 # Optional: mirror latest/ and best/ checkpoints to a public HF model repo.
 # Leave HF_CHECKPOINT_REPO_ID unset to disable Hub checkpoint mirroring.
-export HF_CHECKPOINT_REPO_ID="your-hf-user/unit_t5_live"
+export HF_CHECKPOINT_REPO_ID="dodofk/unit_t5_live"
 export HF_CHECKPOINT_PRIVATE="False"
 export HF_CHECKPOINT_MODE="model"
 
-# Recommended: use a project-specific cache to avoid cross-project cache issues.
+# Recommended: use a project-specific cache to avoid cross-project cache issues. 假如你要放在 different disk
 export HF_HOME="/data/$USER/hf_cache/speechgr"
 mkdir -p "$HF_HOME"
 

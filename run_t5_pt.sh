@@ -80,9 +80,9 @@ fi
 
 python3 t5_pretrain.py \
   --model_name_or_path "google/flan-t5-base" \
-  --learning_rate 0.0001 \
+  --learning_rate 0.00005 \
   --lr_scheduler_type linear \
-  --warmup_steps 10000 \
+  --warmup_steps 2000 \
   --max_grad_norm 1.0 \
   --sentinel_start_id 32099 \
   --sentinel_direction -1 \
@@ -92,7 +92,7 @@ python3 t5_pretrain.py \
   --mean_span_length 7 \
   --code_dir "${CODE_DIR}" \
   --token_file "${TOKEN_FILE}" \
-  --validation_fraction 0.08 \
+  --validation_fraction 0.05 \
   --min_chunk_length 64 \
   --evaluation_strategy steps \
   --eval_steps 10000 \
@@ -100,7 +100,7 @@ python3 t5_pretrain.py \
   --use_cpu False \
   --project "audio-t5-pretrain" \
   --output_dir "ckpts/audio-t5-pt-flant5-base-c500-l22" \
-  --per_device_train_batch_size 6 \
+  --per_device_train_batch_size 20 \
   --per_device_eval_batch_size 4 \
   --gradient_accumulation_steps 8 \
   --logging_steps 100 \
