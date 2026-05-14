@@ -20,6 +20,14 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
+On Joyboy, use the CUDA 12.1 PyTorch setup so the venv matches the current
+NVIDIA driver:
+
+```bash
+bash scripts/setup_joyboy_cuda_env.sh
+source .venv/bin/activate
+```
+
 ### 1) Download or preprocess the unit dataset
 
 If you just want to use the prepared packed SLUE-SQA5 unit dataset, run:

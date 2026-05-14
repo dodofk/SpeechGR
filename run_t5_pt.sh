@@ -9,6 +9,8 @@ is_false() {
 }
 CODE_DIR="${CODE_DIR:-hf://datasets/dodofk/slue-sqa-code-l22-c500}"
 TOKEN_FILE="${TOKEN_FILE:-ckpts/token_lookups/flan-t5-base-c500-l22-token-lookup.txt}"
+export NCCL_P2P_DISABLE="${NCCL_P2P_DISABLE:-1}"
+export NCCL_IB_DISABLE="${NCCL_IB_DISABLE:-1}"
 
 CHECKPOINT_ARGS=()
 if is_false "${SAVE_CHECKPOINTS:-True}"; then

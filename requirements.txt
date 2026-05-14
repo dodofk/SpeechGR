@@ -3,6 +3,7 @@ torchaudio
 joblib
 numpy
 pandas
+pyarrow<21
 tqdm
 wandb
 sentencepiece

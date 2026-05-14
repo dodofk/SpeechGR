@@ -16,6 +16,9 @@ import sys
 import tempfile
 from pathlib import Path
 
+os.environ.setdefault("NCCL_P2P_DISABLE", "1")
+os.environ.setdefault("NCCL_IB_DISABLE", "1")
+
 from transformers import (
     AutoTokenizer,
     DataCollatorForSeq2Seq,

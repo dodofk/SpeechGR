@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
+export NCCL_P2P_DISABLE="${NCCL_P2P_DISABLE:-1}"
+export NCCL_IB_DISABLE="${NCCL_IB_DISABLE:-1}"
 
 MODEL_NAME_OR_PATH="${MODEL_NAME_OR_PATH:-google/flan-t5-base}"
 MODEL_PATH="${MODEL_PATH:-}"

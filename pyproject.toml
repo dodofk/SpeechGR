@@ -21,6 +21,7 @@ dependencies = [
     "joblib",
     "numpy",
     "pandas",
+    "pyarrow<21",
     "tqdm",
     "wandb",
 ]

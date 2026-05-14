@@ -1,5 +1,7 @@
 #!/bin/bash
 set -euo pipefail
+export NCCL_P2P_DISABLE="${NCCL_P2P_DISABLE:-1}"
+export NCCL_IB_DISABLE="${NCCL_IB_DISABLE:-1}"
 
 is_false() {
   case "$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')" in
