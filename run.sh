@@ -26,6 +26,12 @@ else
 fi
 HF_CHECKPOINT_ARGS=()
 MODEL_PATH="${MODEL_PATH:-ckpts/audio-t5-pt-flant5-base-c500-l22/checkpoint-219000}"
+DATASET_PATH="${DATASET_PATH:-}"
+CODE_DIR="${CODE_DIR:-hf://datasets/dodofk/slue-sqa-code-l22-c500}"
+if [[ -z "${DATASET_PATH}" ]]; then
+  echo "Set DATASET_PATH to the SLUE-SQA5 metadata directory before running GR." >&2
+  exit 1
+fi
 
 if [[ -n "${HF_CHECKPOINT_REPO_ID:-}" ]] && ! is_false "${SAVE_CHECKPOINTS:-True}"; then
   HF_CHECKPOINT_ARGS=(
@@ -79,7 +85,8 @@ python3 run.py \
     --logging_steps 200 \
     --dataloader_drop_last False \
     --run_notes "fine-tune on flan-t5 with 500 cluster discrete unit on layer 22 with pretrain checkpoint with document max length 512 " \
-    --code_path "hf://datasets/dodofk/slue-sqa-code-l22-c500" \
+    --dataset_path "${DATASET_PATH}" \
+    --code_path "${CODE_DIR}" \
     --discrete_code_num 500 \
     --bf16 True \
     --model_path "${MODEL_PATH}" \

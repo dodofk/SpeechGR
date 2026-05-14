@@ -11,9 +11,6 @@ from transformers import AutoTokenizer, PreTrainedTokenizerBase
 
 
 DEFAULT_TOKEN_LOOKUP_PATH = "ckpts/token_lookups/flan-t5-base-c500-l22-token-lookup.txt"
-DEFAULT_LOOKUP_SOURCE_CSV = (
-    "/home/ricky/dodofk/dataset/slue_sqa5/slue_sqa5_pq10_llama32_3b_clean.csv"
-)
 DEFAULT_LOOKUP_TEXT_COLUMN = "post_query"
 CONFIG_LOOKUP_KEY = "speechgr_unit_token_lookup"
 
@@ -86,6 +83,20 @@ def build_unused_token_lookup(
             f"Need {discrete_code_num}, got {len(candidates)}."
         )
     return np.asarray(candidates[:discrete_code_num], dtype=np.int64)
+
+
+def build_reserved_safe_token_lookup(
+    tokenizer: PreTrainedTokenizerBase,
+    discrete_code_num: int,
+    min_token_id: int = 20,
+) -> np.ndarray:
+    """Build a deterministic lookup without requiring any dataset metadata."""
+    return build_unused_token_lookup(
+        tokenizer=tokenizer,
+        texts=[],
+        discrete_code_num=discrete_code_num,
+        min_token_id=min_token_id,
+    )
 
 
 def build_lookup_from_csv(

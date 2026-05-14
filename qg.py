@@ -97,7 +97,7 @@ class QueryGenDataset(Dataset):
         self,
         split: str,
         max_length: int = 512,
-        dataset_path: str = "/home/ricky/dodofk/dataset/slue_sqa5/",
+        dataset_path: str = "",
         code_path: str = DEFAULT_SLUE_UNIT_HF_PATH,
         discrete_code_num: int = 512,
         special_token: int = 32000,
@@ -381,7 +381,7 @@ class ModelArguments:
 @dataclass
 class DataTrainingArguments:
     dataset_path: str = field(
-        default="/home/ricky/dodofk/dataset/slue_sqa5/",
+        default_factory=lambda: os.environ.get("DATASET_PATH", ""),
         metadata={"help": "Base path to SLUE-SQA5 CSV files"},
     )
     code_path: str = field(

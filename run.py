@@ -31,6 +31,7 @@ from torch.utils.data import DataLoader
 from dataclasses import asdict, dataclass, field
 from typing import Optional, List
 import json
+import os
 from tqdm import tqdm
 from model import ContinousEmbT5
 from hub_checkpoint import HubCheckpointArguments, build_hub_checkpoint_callbacks
@@ -61,7 +62,7 @@ class RunArguments:
     num_return_sequences: Optional[int] = field(default=10)
     run_notes: str = field(default="")
     code_path: str = field(default=DEFAULT_SLUE_UNIT_HF_PATH)
-    dataset_path: str = field(default="/home/ricky/dodofk/dataset/slue_sqa5/")
+    dataset_path: str = field(default_factory=lambda: os.environ.get("DATASET_PATH", ""))
     special_token: Optional[int] = field(default=32000)
     discrete_code_num: Optional[int] = field(default=500)
     lookup_file_name: Optional[str] = field(default=None)

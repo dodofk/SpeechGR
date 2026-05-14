@@ -7,7 +7,6 @@ is_false() {
     *) return 1 ;;
   esac
 }
-DATASET_PATH="${DATASET_PATH:-/home/ricky/dodofk/dataset/slue_sqa5}"
 CODE_DIR="${CODE_DIR:-hf://datasets/dodofk/slue-sqa-code-l22-c500}"
 TOKEN_FILE="${TOKEN_FILE:-ckpts/token_lookups/flan-t5-base-c500-l22-token-lookup.txt}"
 
@@ -61,7 +60,6 @@ python3 t5_pretrain.py \
   --mean_span_length 7 \
   --code_dir "${CODE_DIR}" \
   --token_file "${TOKEN_FILE}" \
-  --lookup_source_csv "${DATASET_PATH}/slue_sqa5_pq10_llama32_3b_clean.csv" \
   --validation_fraction 0.08 \
   --min_chunk_length 64 \
   --evaluation_strategy steps \

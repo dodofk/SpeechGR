@@ -48,7 +48,8 @@ you want to pretrain the audio/unit T5 backbone on a server.
 
 The unit-to-token lookup is generated automatically under `ckpts/token_lookups/`
 on first run and is saved into the unit-T5 checkpoint config. Keep that mapping
-consistent when continuing into QG or GR.
+consistent when continuing into QG or GR. It does not require a local SLUE CSV
+path.
 
 By default this pretrains directly on the packed SLUE-SQA5 HuBERT unit dataset.
 Override `CODE_DIR` only if you have materialized the packed units somewhere
@@ -105,6 +106,8 @@ export HF_CHECKPOINT_MODE="model"
 export HF_HOME="/data/$USER/hf_cache/speechgr"
 mkdir -p "$HF_HOME"
 
+export DATASET_PATH="/path/to/slue_sqa5_metadata"
+
 # If your unit-pretrained checkpoint is somewhere else, override it here.
 export MODEL_PATH="/path/to/audio-t5-pt/checkpoint-or-best"
 
@@ -123,6 +126,7 @@ SAVE_CHECKPOINTS=False bash run.sh
 For pseudo-query / UnitQG experiments, use the same environment template and run:
 
 ```bash
+export DATASET_PATH="/path/to/slue_sqa5_metadata"
 bash run_qg.sh
 ```
 

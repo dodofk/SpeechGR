@@ -7,13 +7,8 @@ training path on a server.
 
 - Repo is checked out on the training server.
 - Python dependencies are installed from `requirements.txt` or `pyproject.toml`.
-- The SLUE-SQA5 CSV metadata exists at:
-
-```bash
-/home/ricky/dodofk/dataset/slue_sqa5/
-```
-
-- The required files under that directory include:
+- GR and QG need `DATASET_PATH` set to the SLUE-SQA5 CSV metadata directory.
+  The required files under that directory include:
 
 ```text
 train.csv
@@ -25,10 +20,10 @@ slue_sqa5_pq10_llama32_3b_clean.csv
 ```
 
 `run_t5_pt.sh` generates `ckpts/token_lookups/flan-t5-base-c500-l22-token-lookup.txt`
-from `slue_sqa5_pq10_llama32_3b_clean.csv` if it does not already exist. This
-lookup maps HuBERT unit ids `0..499` to actual T5 vocabulary ids, and the same
-lookup is stored in unit-T5 checkpoint configs so GR/QG can continue from the
-checkpoint with the same unit vocabulary.
+if it does not already exist. This lookup maps HuBERT unit ids `0..499` to
+actual T5 vocabulary ids, avoids T5 special/sentinel ids, and is stored in
+unit-T5 checkpoint configs so GR/QG can continue from the checkpoint with the
+same unit vocabulary. Unit-T5 pretraining does not require `DATASET_PATH`.
 
 The discrete unit dataset is downloaded from Hugging Face by default:
 
@@ -99,6 +94,7 @@ python3 scripts/smoke_train_units.py \
 Default QG training:
 
 ```bash
+export DATASET_PATH=/path/to/slue_sqa5_metadata
 bash run_qg.sh
 ```
 
@@ -131,6 +127,7 @@ Old Hub `checkpoint-*` folders are pruned by default.
 DSI training from the current configured pretrained checkpoint:
 
 ```bash
+export DATASET_PATH=/path/to/slue_sqa5_metadata
 bash run.sh
 ```
 

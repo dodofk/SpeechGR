@@ -3,6 +3,12 @@ set -euo pipefail
 
 MODEL_NAME_OR_PATH="${MODEL_NAME_OR_PATH:-google/flan-t5-base}"
 MODEL_PATH="${MODEL_PATH:-}"
+DATASET_PATH="${DATASET_PATH:-}"
+CODE_DIR="${CODE_DIR:-hf://datasets/dodofk/slue-sqa-code-l22-c500}"
+if [[ -z "${DATASET_PATH}" ]]; then
+  echo "Set DATASET_PATH to the SLUE-SQA5 metadata directory before running QG." >&2
+  exit 1
+fi
 MODEL_PATH_ARGS=()
 if [[ -n "${MODEL_PATH}" ]]; then
   MODEL_PATH_ARGS=(--model_path "${MODEL_PATH}")
@@ -54,8 +60,8 @@ python qg.py \
   "${MODEL_PATH_ARGS[@]}" \
   --final_model_dir "ckpts/flan-t5-querygen" \
   --special_token 32000 \
-  --dataset_path "/home/ricky/dodofk/dataset/slue_sqa5/" \
-  --code_path "hf://datasets/dodofk/slue-sqa-code-l22-c500" \
+  --dataset_path "${DATASET_PATH}" \
+  --code_path "${CODE_DIR}" \
   --split train \
   --max_length 512 \
   --label_max_length 300 \

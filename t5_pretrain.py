@@ -34,11 +34,11 @@ from unit_store import (
     resolve_unit_code_path,
 )
 from unit_token_lookup import (
-    DEFAULT_LOOKUP_SOURCE_CSV,
     DEFAULT_LOOKUP_TEXT_COLUMN,
     DEFAULT_TOKEN_LOOKUP_PATH,
     attach_lookup_to_config,
     build_lookup_from_csv,
+    build_reserved_safe_token_lookup,
     load_token_lookup,
     save_token_lookup,
 )
@@ -236,7 +236,7 @@ class DiscreteCodeDataset(Dataset):
         split: str = "train",
         token_file: Optional[str] = DEFAULT_TOKEN_LOOKUP_PATH,
         tokenizer_name_or_path: str = "google/flan-t5-base",
-        lookup_source_csv: str = DEFAULT_LOOKUP_SOURCE_CSV,
+        lookup_source_csv: Optional[str] = None,
         lookup_text_column: str = DEFAULT_LOOKUP_TEXT_COLUMN,
         validation_fraction: float = 0.08,
         min_chunk_length: int = 64,
@@ -324,12 +324,21 @@ class DiscreteCodeDataset(Dataset):
             logging.info("Loading unit token lookup from %s", self.token_file)
             return load_token_lookup(self.token_file, self.discrete_code_num)
 
-        lookup = build_lookup_from_csv(
-            csv_path=self.lookup_source_csv,
-            tokenizer_name_or_path=self.tokenizer_name_or_path,
-            discrete_code_num=self.discrete_code_num,
-            text_column=self.lookup_text_column,
-        )
+        if self.lookup_source_csv:
+            lookup = build_lookup_from_csv(
+                csv_path=self.lookup_source_csv,
+                tokenizer_name_or_path=self.tokenizer_name_or_path,
+                discrete_code_num=self.discrete_code_num,
+                text_column=self.lookup_text_column,
+            )
+        else:
+            from transformers import AutoTokenizer
+
+            tokenizer = AutoTokenizer.from_pretrained(self.tokenizer_name_or_path)
+            lookup = build_reserved_safe_token_lookup(
+                tokenizer=tokenizer,
+                discrete_code_num=self.discrete_code_num,
+            )
         if self.token_file:
             output_path = save_token_lookup(self.token_file, lookup)
             logging.info("Saved generated unit token lookup to %s", output_path)
@@ -458,12 +467,15 @@ class DataTrainingArguments:
         default=DEFAULT_TOKEN_LOOKUP_PATH,
         metadata={
             "help": "File mapping discrete unit ids to tokenizer ids. "
-            "If it does not exist, it is generated from lookup_source_csv."
+            "If it does not exist, it is generated from tokenizer reserved-token rules."
         },
     )
-    lookup_source_csv: str = field(
-        default=DEFAULT_LOOKUP_SOURCE_CSV,
-        metadata={"help": "CSV used to generate token_file when it is missing."},
+    lookup_source_csv: Optional[str] = field(
+        default=None,
+        metadata={
+            "help": "Optional CSV used to avoid text-token collisions when generating token_file. "
+            "If omitted, lookup is generated only from tokenizer reserved-token rules."
+        },
     )
     lookup_text_column: str = field(
         default=DEFAULT_LOOKUP_TEXT_COLUMN,
