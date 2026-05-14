@@ -16,7 +16,7 @@ import numpy as np
 import torch
 import pandas as pd
 import os
-from typing import Optional, Tuple, List
+from typing import Optional, Sequence, Tuple, List
 import h5py
 import logging
 import librosa
@@ -32,6 +32,7 @@ from unit_store import (
     load_packed_store,
     resolve_unit_code_path,
 )
+from unit_token_lookup import build_unused_token_lookup, load_token_lookup
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -126,6 +127,7 @@ class SlueSQA5DatasetV2(Dataset):
         truncate_offset: int = 50,
         special_token: int = 32000,  # specific the special token to use for query task
         lookup_file_name: Optional[str] = None,
+        lookup_values: Optional[Sequence[int]] = None,
         train_atomic: bool = False,
         atomic_offset: int = 50,
     ):
@@ -154,6 +156,7 @@ class SlueSQA5DatasetV2(Dataset):
         )
         self.special_token = special_token
         self.lookup_file_name = lookup_file_name
+        self.lookup_values = lookup_values
         self.train_atomic = train_atomic
         self.atomic_offset = atomic_offset
         self.query_store = load_packed_store(
@@ -242,29 +245,32 @@ class SlueSQA5DatasetV2(Dataset):
                 self.atomic_offset + self.discrete_code_num
             )  # update for passage use
         elif self.lookup_file_name:
-            lookup = np.loadtxt(self.lookup_file_name).astype(int)
+            lookup = load_token_lookup(
+                self.lookup_file_name,
+                discrete_code_num=self.discrete_code_num,
+            )
+            self.discrete_code_lookup = lookup
+            self.code_to_idx = {
+                idx: code for idx, code in enumerate(self.discrete_code_lookup)
+            }
+        elif self.lookup_values is not None:
+            lookup = np.asarray(self.lookup_values, dtype=int)[: self.discrete_code_num]
+            if len(lookup) < self.discrete_code_num:
+                raise ValueError(
+                    f"lookup_values only provides {len(lookup)} token ids, "
+                    f"but discrete_code_num={self.discrete_code_num}"
+                )
             self.discrete_code_lookup = lookup
             self.code_to_idx = {
                 idx: code for idx, code in enumerate(self.discrete_code_lookup)
             }
         else:
-            corpus = self.pq_data["post_query"].tolist()
-            all_set = set(list(range(self.tokenizer.vocab_size)))
-            used_set = set()
-            for c in corpus:
-                for t in self.tokenizer(c)["input_ids"]:
-                    used_set.add(t)
-            unused_tokens = sorted(list(all_set - used_set))
-            # Remove tokens < 20 to avoid special tokens
-            unused_tokens = [t for t in unused_tokens if t >= 20]
-
-            if len(unused_tokens) < self.discrete_code_num:
-                raise ValueError(
-                    f"Not enough unused tokens to build a discrete code lookup. Got {len(unused_tokens)} tokens, but {self.discrete_code_num} are required."
-                )
-
-            # Use the first N tokens as discrete code lookup
-            self.discrete_code_lookup = unused_tokens[: self.discrete_code_num]
+            lookup = build_unused_token_lookup(
+                tokenizer=self.tokenizer,
+                texts=self.pq_data["post_query"].tolist(),
+                discrete_code_num=self.discrete_code_num,
+            )
+            self.discrete_code_lookup = lookup
             self.code_to_idx = {
                 idx: code for idx, code in enumerate(self.discrete_code_lookup)
             }

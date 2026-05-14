@@ -7,6 +7,9 @@ is_false() {
     *) return 1 ;;
   esac
 }
+DATASET_PATH="${DATASET_PATH:-/home/ricky/dodofk/dataset/slue_sqa5}"
+TOKEN_FILE="${TOKEN_FILE:-ckpts/token_lookups/flan-t5-base-c500-l22-token-lookup.txt}"
+
 CHECKPOINT_ARGS=()
 if is_false "${SAVE_CHECKPOINTS:-True}"; then
   CHECKPOINT_ARGS=(
@@ -55,7 +58,8 @@ python3 t5_pretrain.py \
   --seq_length 512 \
   --mask_prob 0.2 \
   --mean_span_length 7 \
-  --token_file "/home/ricky/dodofk/dataset/slue_sqa5/flan-t5-base-unused_tokens.txt" \
+  --token_file "${TOKEN_FILE}" \
+  --lookup_source_csv "${DATASET_PATH}/slue_sqa5_pq10_llama32_3b_clean.csv" \
   --validation_fraction 0.08 \
   --min_chunk_length 64 \
   --evaluation_strategy steps \

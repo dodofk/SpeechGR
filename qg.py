@@ -8,7 +8,7 @@ import json
 from collections import Counter
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
-from typing import Optional, List, Dict, Any
+from typing import Optional, Sequence, List, Dict, Any
 
 import numpy as np
 import pandas as pd
@@ -31,6 +31,11 @@ from unit_store import (
     PACKED_SLUE_PATTERNS,
     load_packed_store,
     resolve_unit_code_path,
+)
+from unit_token_lookup import (
+    build_lookup_from_csv,
+    load_token_lookup,
+    lookup_from_model_config,
 )
 
 # ---------------------------------------------
@@ -96,9 +101,10 @@ class QueryGenDataset(Dataset):
         code_path: str = DEFAULT_SLUE_UNIT_HF_PATH,
         discrete_code_num: int = 512,
         special_token: int = 32000,
-        lookup_file_name: Optional[
-            str
-        ] = "/home/ricky/dodofk/dataset/slue_sqa5/flan-t5-base-unused_tokens.txt",
+        lookup_file_name: Optional[str] = None,
+        lookup_values: Optional[Sequence[int]] = None,
+        model_name_or_path: str = "google/flan-t5-base",
+        pq_filename: str = "slue_sqa5_pq10_llama32_3b_clean.csv",
         offset: int = 30,
         label_max_length: int = 300, # as some of the query is extreme long, we need to truncate the label
     ):
@@ -118,6 +124,8 @@ class QueryGenDataset(Dataset):
         self.special_token = special_token
         self.offset = offset
         self.label_max_length = label_max_length
+        self.model_name_or_path = model_name_or_path
+        self.pq_filename = pq_filename
         self.query_store = load_packed_store(
             os.path.join(self.code_path, f"{self.split}.npz")
         )
@@ -130,7 +138,7 @@ class QueryGenDataset(Dataset):
         self.data = []
 
         self.discrete_code_num = discrete_code_num
-        self._build_code_lookup(lookup_file_name)
+        self._build_code_lookup(lookup_file_name, lookup_values, dataset_path)
         self._build_data()
 
         print("Info dataset length: ", len(self.data))
@@ -149,12 +157,32 @@ class QueryGenDataset(Dataset):
             os.path.join(self.code_path, f"document_code/{did}.code")
         ).astype(int)
 
-    def _build_code_lookup(self, lookup_file_name: Optional[str]):
+    def _build_code_lookup(
+        self,
+        lookup_file_name: Optional[str],
+        lookup_values: Optional[Sequence[int]],
+        dataset_path: str,
+    ):
         if lookup_file_name:
-            lookup = np.loadtxt(lookup_file_name).astype(int)
-            self.code_lookup = lookup
+            lookup = load_token_lookup(
+                lookup_file_name,
+                discrete_code_num=self.discrete_code_num,
+            )
+        elif lookup_values is not None:
+            lookup = np.asarray(lookup_values, dtype=int)[: self.discrete_code_num]
+            if len(lookup) < self.discrete_code_num:
+                raise ValueError(
+                    f"lookup_values only provides {len(lookup)} token ids, "
+                    f"but discrete_code_num={self.discrete_code_num}"
+                )
         else:
-            raise ValueError("lookup_file_name is required")
+            lookup = build_lookup_from_csv(
+                csv_path=os.path.join(dataset_path, self.pq_filename),
+                tokenizer_name_or_path=self.model_name_or_path,
+                discrete_code_num=self.discrete_code_num,
+            )
+            self.code_lookup = lookup
+        self.code_lookup = lookup
         # invert lookup: original -> idx in [0,discrete_code_num)
         self.code_to_idx = {idx: orig for idx, orig in enumerate(self.code_lookup)}
 
@@ -383,8 +411,11 @@ class DataTrainingArguments:
         metadata={"help": "Size of discrete code lookup"},
     )
     lookup_file_name: Optional[str] = field(
-        default="/home/ricky/dodofk/dataset/slue_sqa5/flan-t5-base-unused_tokens.txt",
-        metadata={"help": "Optional .npy lookup file"},
+        default=None,
+        metadata={
+            "help": "Optional lookup txt mapping unit ids to T5 token ids. "
+            "If omitted, uses model config lookup or rebuilds from SLUE pseudo-query text."
+        },
     )
 
 
@@ -443,6 +474,10 @@ def main() -> None:
         )
 
     tokenizer = T5Tokenizer.from_pretrained(model_args.model_name_or_path)
+    config_lookup = lookup_from_model_config(
+        model.config,
+        discrete_code_num=data_args.discrete_code_num,
+    )
     generation_max_length = (
         data_args.generation_max_length
         if data_args.generation_max_length is not None
@@ -458,6 +493,8 @@ def main() -> None:
         discrete_code_num=data_args.discrete_code_num,
         special_token=model_args.special_token,
         lookup_file_name=data_args.lookup_file_name,
+        lookup_values=config_lookup,
+        model_name_or_path=model_args.model_name_or_path,
         label_max_length=data_args.label_max_length,
     )
     # for eval, use validation split
@@ -469,6 +506,8 @@ def main() -> None:
         discrete_code_num=data_args.discrete_code_num,
         special_token=model_args.special_token,
         lookup_file_name=data_args.lookup_file_name,
+        lookup_values=config_lookup,
+        model_name_or_path=model_args.model_name_or_path,
         label_max_length=data_args.label_max_length,
     )
     

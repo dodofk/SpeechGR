@@ -46,6 +46,10 @@ python3 scripts/smoke_test_dataloaders.py \
 Skip this step if you already have a unit-pretrained checkpoint. Use this when
 you want to pretrain the audio/unit T5 backbone on a server.
 
+The unit-to-token lookup is generated automatically under `ckpts/token_lookups/`
+on first run and is saved into the unit-T5 checkpoint config. Keep that mapping
+consistent when continuing into QG or GR.
+
 ```bash
 export WANDB_API_KEY="..."
 export HF_TOKEN="..."

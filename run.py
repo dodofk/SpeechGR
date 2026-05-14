@@ -35,6 +35,7 @@ from tqdm import tqdm
 from model import ContinousEmbT5
 from hub_checkpoint import HubCheckpointArguments, build_hub_checkpoint_callbacks
 from unit_store import DEFAULT_SLUE_UNIT_HF_PATH
+from unit_token_lookup import lookup_from_model_config
 
 set_seed(42)
 
@@ -207,6 +208,11 @@ def main():
                 run_args.model_name, cache_dir="cache"
             )
 
+    config_lookup = lookup_from_model_config(
+        model.config,
+        discrete_code_num=run_args.discrete_code_num,
+    )
+
     train_dataset = SlueSQA5DatasetV2(
         split="train",
         max_length=run_args.max_length,
@@ -216,6 +222,7 @@ def main():
         special_token=run_args.special_token,
         discrete_code_num=run_args.discrete_code_num,
         lookup_file_name=run_args.lookup_file_name,
+        lookup_values=config_lookup,
         train_atomic=run_args.run_atomic,
         atomic_offset=run_args.atomic_offset,
     )
@@ -229,6 +236,7 @@ def main():
         special_token=run_args.special_token,
         discrete_code_num=run_args.discrete_code_num,
         lookup_file_name=run_args.lookup_file_name,
+        lookup_values=config_lookup,
         train_atomic=run_args.run_atomic,
         atomic_offset=run_args.atomic_offset,
     )
@@ -242,6 +250,7 @@ def main():
         special_token=run_args.special_token,
         discrete_code_num=run_args.discrete_code_num,
         lookup_file_name=run_args.lookup_file_name,
+        lookup_values=config_lookup,
         train_atomic=run_args.run_atomic,
         atomic_offset=run_args.atomic_offset,
     )

@@ -22,10 +22,20 @@ from transformers import (
 import wandb
 import glob
 import os
+from pathlib import Path
 import numpy as np
 from tqdm import tqdm
 from hub_checkpoint import HubCheckpointArguments, build_hub_checkpoint_callbacks
 from unit_store import PackedUnitStore, load_packed_store, resolve_unit_code_path
+from unit_token_lookup import (
+    DEFAULT_LOOKUP_SOURCE_CSV,
+    DEFAULT_LOOKUP_TEXT_COLUMN,
+    DEFAULT_TOKEN_LOOKUP_PATH,
+    attach_lookup_to_config,
+    build_lookup_from_csv,
+    load_token_lookup,
+    save_token_lookup,
+)
 
 # Set up logging.
 logging.basicConfig(level=logging.INFO)
@@ -218,7 +228,10 @@ class DiscreteCodeDataset(Dataset):
         code_dir: str = "/home/ricky/dodofk/dataset/ll6k_code_l22_c500",
         discrete_code_num: int = 500,
         split: str = "train",
-        token_file: str = "/home/ricky/dodofk/dataset/slue_sqa5/flan-t5-base-unused_tokens.txt",
+        token_file: Optional[str] = DEFAULT_TOKEN_LOOKUP_PATH,
+        tokenizer_name_or_path: str = "google/flan-t5-base",
+        lookup_source_csv: str = DEFAULT_LOOKUP_SOURCE_CSV,
+        lookup_text_column: str = DEFAULT_LOOKUP_TEXT_COLUMN,
         validation_fraction: float = 0.08,
         min_chunk_length: int = 64,
         sentinel_start_id: Optional[int] = None,
@@ -239,6 +252,10 @@ class DiscreteCodeDataset(Dataset):
         self.chunk_offset: int = chunk_offset
         self.validation_fraction = validation_fraction
         self.min_chunk_length = min_chunk_length
+        self.token_file = token_file
+        self.tokenizer_name_or_path = tokenizer_name_or_path
+        self.lookup_source_csv = lookup_source_csv
+        self.lookup_text_column = lookup_text_column
         
         assert split in ["train", "val"], "split must be either train or val"
         if self.packed_store is None and not self.code_files:
@@ -250,12 +267,7 @@ class DiscreteCodeDataset(Dataset):
         if not 0 <= self.chunk_offset < self.max_length:
             raise ValueError("chunk_offset must be smaller than max_length")
         self.split = split
-        self.code_lookup = np.loadtxt(token_file, dtype=int)[: self.discrete_code_num]
-        if len(self.code_lookup) < self.discrete_code_num:
-            raise ValueError(
-                f"token_file only provides {len(self.code_lookup)} token ids, "
-                f"but discrete_code_num={self.discrete_code_num}"
-            )
+        self.code_lookup = self._load_or_build_code_lookup()
         if sentinel_start_id is not None:
             sentinel_ids = {
                 sentinel_start_id + sentinel_direction * i for i in range(max_sentinels)
@@ -276,6 +288,22 @@ class DiscreteCodeDataset(Dataset):
         if code_dir.endswith(".npz"):
             return load_packed_store(code_dir)
         return load_packed_store(os.path.join(code_dir, "librispeech.npz"))
+
+    def _load_or_build_code_lookup(self) -> np.ndarray:
+        if self.token_file and Path(self.token_file).exists():
+            logging.info("Loading unit token lookup from %s", self.token_file)
+            return load_token_lookup(self.token_file, self.discrete_code_num)
+
+        lookup = build_lookup_from_csv(
+            csv_path=self.lookup_source_csv,
+            tokenizer_name_or_path=self.tokenizer_name_or_path,
+            discrete_code_num=self.discrete_code_num,
+            text_column=self.lookup_text_column,
+        )
+        if self.token_file:
+            output_path = save_token_lookup(self.token_file, lookup)
+            logging.info("Saved generated unit token lookup to %s", output_path)
+        return lookup
 
     def _split_items(self) -> List[str]:
         items = self.record_ids if self.packed_store is not None else self.code_files
@@ -393,9 +421,20 @@ class DataTrainingArguments:
         default="/home/ricky/dodofk/dataset/ll6k_code_l22_c500",
         metadata={"help": "Directory to the code dataset"},
     )
-    token_file: str = field(
-        default="/home/ricky/dodofk/dataset/slue_sqa5/flan-t5-base-unused_tokens.txt",
-        metadata={"help": "File mapping discrete unit ids to tokenizer ids"},
+    token_file: Optional[str] = field(
+        default=DEFAULT_TOKEN_LOOKUP_PATH,
+        metadata={
+            "help": "File mapping discrete unit ids to tokenizer ids. "
+            "If it does not exist, it is generated from lookup_source_csv."
+        },
+    )
+    lookup_source_csv: str = field(
+        default=DEFAULT_LOOKUP_SOURCE_CSV,
+        metadata={"help": "CSV used to generate token_file when it is missing."},
+    )
+    lookup_text_column: str = field(
+        default=DEFAULT_LOOKUP_TEXT_COLUMN,
+        metadata={"help": "Text column used to find unused T5 tokens."},
     )
     discrete_code_num: int = field(
         default=500, metadata={"help": "Number of discrete code in the dataset"},
@@ -472,6 +511,9 @@ def main() -> None:
         code_dir=data_args.code_dir,
         discrete_code_num=data_args.discrete_code_num,
         token_file=data_args.token_file,
+        tokenizer_name_or_path=model_args.model_name_or_path,
+        lookup_source_csv=data_args.lookup_source_csv,
+        lookup_text_column=data_args.lookup_text_column,
         validation_fraction=data_args.validation_fraction,
         min_chunk_length=data_args.min_chunk_length,
         sentinel_start_id=model_args.sentinel_start_id,
@@ -484,6 +526,9 @@ def main() -> None:
         code_dir=data_args.code_dir,
         discrete_code_num=data_args.discrete_code_num,
         token_file=data_args.token_file,
+        tokenizer_name_or_path=model_args.model_name_or_path,
+        lookup_source_csv=data_args.lookup_source_csv,
+        lookup_text_column=data_args.lookup_text_column,
         validation_fraction=data_args.validation_fraction,
         min_chunk_length=data_args.min_chunk_length,
         sentinel_start_id=model_args.sentinel_start_id,
@@ -499,6 +544,15 @@ def main() -> None:
         mean_span_length=data_args.mean_span_length,
         sentinel_start_id=model_args.sentinel_start_id,
         sentinel_direction=model_args.sentinel_direction,
+    )
+
+    attach_lookup_to_config(
+        model.config,
+        train_dataset.code_lookup,
+        discrete_code_num=data_args.discrete_code_num,
+        unit_token_lookup_file=data_args.token_file,
+        lookup_source_csv=data_args.lookup_source_csv,
+        lookup_text_column=data_args.lookup_text_column,
     )
 
     logging.info("Set up the trainer")
@@ -519,6 +573,10 @@ def main() -> None:
     # 7. Save the final model checkpoint to the specified directory.
     if model_args.save_final_model:
         trainer.save_model(model_args.final_model_dir)
+        save_token_lookup(
+            Path(model_args.final_model_dir) / "unit_token_lookup.txt",
+            train_dataset.code_lookup,
+        )
     else:
         logger.info("Skipping final model save because save_final_model=False")
     if use_wandb and training_args.process_index == 0 and wandb.run is not None:

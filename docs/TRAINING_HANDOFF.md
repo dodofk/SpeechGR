@@ -22,8 +22,13 @@ test.csv
 verified_test.csv
 slue_sqa5_corpus.csv
 slue_sqa5_pq10_llama32_3b_clean.csv
-flan-t5-base-unused_tokens.txt
 ```
+
+`run_t5_pt.sh` generates `ckpts/token_lookups/flan-t5-base-c500-l22-token-lookup.txt`
+from `slue_sqa5_pq10_llama32_3b_clean.csv` if it does not already exist. This
+lookup maps HuBERT unit ids `0..499` to actual T5 vocabulary ids, and the same
+lookup is stored in unit-T5 checkpoint configs so GR/QG can continue from the
+checkpoint with the same unit vocabulary.
 
 The discrete unit dataset is downloaded from Hugging Face by default:
 
