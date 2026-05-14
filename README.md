@@ -1,119 +1,109 @@
 # SpeechGR
 
-## Training Quickstart
+End-to-end speech generative retrieval on SLUE-SQA5 with HuBERT layer-22 K=500
+units. This repo is set up so a new server can prepare the unit dataset, optionally
+pretrain the unit T5 backbone, then train the GR model.
 
-For server handoff and copy-paste launch commands, start with
+For more detailed handoff notes and debugging commands, see
 [docs/TRAINING_HANDOFF.md](docs/TRAINING_HANDOFF.md).
 
-## Packed SLUE-SQA5 Unit Dataset
+## Quickstart: launch training
 
-The SLUE-SQA5 HuBERT layer-22 K=500 unit files are stored on Hugging Face as
-packed NumPy archives:
+### 0) Set up Python
 
-```text
-hf://datasets/dodofk/slue-sqa-code-l22-c500
+```bash
+git clone git@github.com:dodofk/SpeechGR.git
+cd SpeechGR
+
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
 ```
 
-The training scripts use this path by default. On a new machine, installing
-`requirements.txt` is enough for `data.py`, `qg.py`, and `run.py` to download
-the files through the Hugging Face cache on first use.
+### 1) Download or preprocess the unit dataset
 
-For a remote server or cluster job, prefetch and verify the dataset first:
+If you just want to use the prepared packed SLUE-SQA5 unit dataset, run:
 
 ```bash
 python3 scripts/download_unit_dataset.py
-```
-
-Quick smoke test:
-
-```bash
-python3 scripts/download_unit_dataset.py --splits verified_test --local-dir /tmp/slue_sqa_code_l22_c500_smoke
-```
-
-Use a shared cache if multiple runs should reuse the same download:
-
-```bash
-HF_HOME=/path/to/hf_cache python3 scripts/download_unit_dataset.py
-```
-
-You can also materialize the files into a normal directory and pass that path
-to existing commands:
-
-```bash
-python3 scripts/download_unit_dataset.py --local-dir /data/slue_sqa_code_l22_c500
-python3 run.py --code_path /data/slue_sqa_code_l22_c500 ...
-```
-
-Validate the training dataloaders without starting a training run:
-
-```bash
 python3 scripts/smoke_test_dataloaders.py
 ```
 
-If the packed units are already materialized locally, validate against those
-real unit sequences:
+If you are starting from newly extracted or legacy per-utterance unit files,
+pack them first and then point training commands at that packed directory:
 
 ```bash
-python3 scripts/smoke_test_dataloaders.py --code-dir /data/slue_sqa_code_l22_c500
+python3 scripts/pack_unit_codes.py \
+  --input-dir /path/to/slue_sqa_code_l22_c500_legacy \
+  --output-dir /data/slue_sqa_code_l22_c500
+
+python3 scripts/smoke_test_dataloaders.py \
+  --code-dir /data/slue_sqa_code_l22_c500
 ```
 
-Run a tiny CPU training smoke with the same packed-unit DSI and QG training
-paths:
+### 2) Optional: unit-T5 pretraining
+
+Skip this step if you already have a unit-pretrained checkpoint. Use this when
+you want to pretrain the audio/unit T5 backbone on a server.
 
 ```bash
-python3 scripts/smoke_train_units.py \
-  --mode both \
-  --code-dir /data/slue_sqa_code_l22_c500 \
-  --max-steps 2 \
-  --batch-size 1 \
-  --max-length 64 \
-  --label-max-length 32 \
-  --truncate-offset 8
+export WANDB_API_KEY="..."
+export HF_TOKEN="..."
+
+# Optional: mirror latest/ and best/ checkpoints to a public HF model repo.
+# Leave HF_CHECKPOINT_REPO_ID unset to disable Hub checkpoint mirroring.
+export HF_CHECKPOINT_REPO_ID="your-hf-user/speechgr-unit-t5-live"
+export HF_CHECKPOINT_PRIVATE="False"
+export HF_CHECKPOINT_MODE="model"
+
+# Optional shared cache location on a cluster/server.
+export HF_HOME="/data/hf_cache"
+
+bash run_t5_pt.sh
 ```
 
-## Optional Hub Checkpoint Mirror
-
-Long server runs can mirror the newest validation snapshot and the current best
-snapshot to a Hugging Face model repo. This is off by default. Enable it by
-setting `HF_CHECKPOINT_REPO_ID` before a run script:
+Useful switches:
 
 ```bash
-HF_TOKEN=... \
-HF_CHECKPOINT_REPO_ID=dodofk/speechgr-qg-live \
+# Debug run without periodic local checkpoints or final save.
+SAVE_CHECKPOINTS=False SAVE_FINAL_MODEL=False bash run_t5_pt.sh
+```
+
+### 3) Train SpeechGR / DSI retrieval
+
+Run GR training with the default unit dataset and the configured unit-T5
+checkpoint path:
+
+```bash
+export WANDB_API_KEY="..."
+export HF_TOKEN="..."
+
+# Optional: mirror latest/ and best/ GR checkpoints to a public HF model repo.
+export HF_CHECKPOINT_REPO_ID="your-hf-user/speechgr-gr-live"
+export HF_CHECKPOINT_PRIVATE="False"
+export HF_CHECKPOINT_MODE="model"
+export HF_HOME="/data/hf_cache"
+
+# If your unit-pretrained checkpoint is somewhere else, override it here.
+export MODEL_PATH="/path/to/audio-t5-pt/checkpoint-or-best"
+
+bash run.sh
+```
+
+Useful switches:
+
+```bash
+# Disable periodic local checkpoints and Hub mirroring for quick debugging.
+SAVE_CHECKPOINTS=False bash run.sh
+```
+
+## Optional QG experiment
+
+For pseudo-query / UnitQG experiments, use the same environment template and run:
+
+```bash
 bash run_qg.sh
 ```
 
-By default, this uploads model-only snapshots to `latest/` after every
-validation and to `best/` when the configured validation metric improves. It
-also prunes stale Hub `checkpoint-*` paths so the public repo does not grow one
-checkpoint per validation. Disable pruning only if you intentionally want to
-keep old Hub checkpoints:
-
-```bash
-HF_CHECKPOINT_PRUNE_OLD=False \
-HF_CHECKPOINT_REPO_ID=dodofk/speechgr-qg-live \
-bash run_qg.sh
-```
-
-Use full Trainer checkpoints only when you really need optimizer/scheduler state:
-
-```bash
-HF_CHECKPOINT_MODE=trainer \
-HF_CHECKPOINT_REPO_ID=dodofk/speechgr-qg-live \
-bash run_qg.sh
-```
-
-`trainer` mode is much larger because it includes optimizer state. For normal
-monitoring, keep the default `model` mode.
-
-Disable periodic local checkpoints and Hub mirroring for a debug run:
-
-```bash
-SAVE_CHECKPOINTS=False bash run_qg.sh
-```
-
-For QG/pretraining scripts, disable the final `save_model()` too:
-
-```bash
-SAVE_CHECKPOINTS=False SAVE_FINAL_MODEL=False bash run_qg.sh
-```
+`run_qg.sh` also supports `MODEL_PATH=/path/to/unit-t5-checkpoint` and the same
+`HF_CHECKPOINT_*`, `SAVE_CHECKPOINTS`, and `SAVE_FINAL_MODEL` switches.

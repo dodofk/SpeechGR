@@ -25,6 +25,8 @@ else
   )
 fi
 HF_CHECKPOINT_ARGS=()
+MODEL_PATH="${MODEL_PATH:-ckpts/audio-t5-pt-flant5-base-c500-l22/checkpoint-219000}"
+
 if [[ -n "${HF_CHECKPOINT_REPO_ID:-}" ]] && ! is_false "${SAVE_CHECKPOINTS:-True}"; then
   HF_CHECKPOINT_ARGS=(
     --hf_checkpoint_repo_id "${HF_CHECKPOINT_REPO_ID}"
@@ -80,7 +82,7 @@ python3 run.py \
     --code_path "hf://datasets/dodofk/slue-sqa-code-l22-c500" \
     --discrete_code_num 500 \
     --bf16 True \
-    --model_path ckpts/audio-t5-pt-flant5-base-c500-l22/checkpoint-219000 \
+    --model_path "${MODEL_PATH}" \
     "${CHECKPOINT_ARGS[@]}" \
     "${HF_CHECKPOINT_ARGS[@]}"
 echo "Execution completed successfully!"
