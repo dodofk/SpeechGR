@@ -1,5 +1,43 @@
 #!/bin/bash
-set -e  # Exit immediately if a command exits with a non-zero status
+set -euo pipefail
+
+is_false() {
+  case "$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')" in
+    0|false|no|off) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+CHECKPOINT_ARGS=()
+if is_false "${SAVE_CHECKPOINTS:-True}"; then
+  CHECKPOINT_ARGS=(
+    --save_strategy no
+    --load_best_model_at_end False
+  )
+else
+  CHECKPOINT_ARGS=(
+    --save_strategy steps
+    --save_steps 2500
+    --save_total_limit 2
+    --load_best_model_at_end
+    --metric_for_best_model Hits@20
+    --greater_is_better True
+    --save_safetensors True
+  )
+fi
+HF_CHECKPOINT_ARGS=()
+if [[ -n "${HF_CHECKPOINT_REPO_ID:-}" ]] && ! is_false "${SAVE_CHECKPOINTS:-True}"; then
+  HF_CHECKPOINT_ARGS=(
+    --hf_checkpoint_repo_id "${HF_CHECKPOINT_REPO_ID}"
+    --hf_checkpoint_private "${HF_CHECKPOINT_PRIVATE:-False}"
+    --hf_checkpoint_mode "${HF_CHECKPOINT_MODE:-model}"
+    --hf_checkpoint_latest_path "${HF_CHECKPOINT_LATEST_PATH:-latest}"
+    --hf_checkpoint_best_path "${HF_CHECKPOINT_BEST_PATH:-best}"
+    --hf_checkpoint_prune_old "${HF_CHECKPOINT_PRUNE_OLD:-True}"
+  )
+  if [[ -n "${HF_CHECKPOINT_REVISION:-}" ]]; then
+    HF_CHECKPOINT_ARGS+=(--hf_checkpoint_revision "${HF_CHECKPOINT_REVISION}")
+  fi
+fi
 
 # Define common directories
 # BASE_DIR=$(pwd)
@@ -25,27 +63,24 @@ python3 run.py \
     --max_length 512 \
     --output_dir "models/slue_sqa5-flan-t5-base-DSI-QG-q&d-both-du-l22-c500-wpt-d512" \
     --learning_rate 0.0001 \
+    --lr_scheduler_type linear \
     --warmup_steps 10000 \
+    --max_grad_norm 1.0 \
     --per_device_train_batch_size 16 \
     --per_device_eval_batch_size  8 \
     --evaluation_strategy steps \
     --eval_steps 2500 \
     --max_steps 100000 \
-    --save_strategy steps \
     --dataloader_num_workers 0 \
-    --save_steps 2500 \
-    --save_total_limit 4 \
-    --load_best_model_at_end \
     --gradient_accumulation_steps 8 \
     --report_to wandb \
     --logging_steps 200 \
     --dataloader_drop_last False \
-    --metric_for_best_model Hits@20 \
-    --greater_is_better True \
-    --save_safetensors True \
-    --run_note "fine-tune on flan-t5 with 500 cluster discrete unit on layer 22 with pretrain checkpoint with document max length 512 " \
-    --code_path "/home/ricky/dodofk/dataset/slue_sqa_code_l22_c500" \
+    --run_notes "fine-tune on flan-t5 with 500 cluster discrete unit on layer 22 with pretrain checkpoint with document max length 512 " \
+    --code_path "hf://datasets/dodofk/slue-sqa-code-l22-c500" \
     --discrete_code_num 500 \
     --bf16 True \
-    --model_path ckpts/audio-t5-pt-flant5-base-c500-l22/checkpoint-219000
+    --model_path ckpts/audio-t5-pt-flant5-base-c500-l22/checkpoint-219000 \
+    "${CHECKPOINT_ARGS[@]}" \
+    "${HF_CHECKPOINT_ARGS[@]}"
 echo "Execution completed successfully!"

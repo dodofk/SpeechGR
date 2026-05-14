@@ -26,6 +26,12 @@ from transformers.models.whisper.feature_extraction_whisper import (
 )
 import torch.nn.functional as F
 from torchaudio.transforms import FrequencyMasking, TimeMasking
+from unit_store import (
+    DEFAULT_SLUE_UNIT_HF_PATH,
+    PACKED_SLUE_PATTERNS,
+    load_packed_store,
+    resolve_unit_code_path,
+)
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -111,7 +117,7 @@ class SlueSQA5DatasetV2(Dataset):
         split: str = "train",
         max_length: int = 512,
         dataset_path: str = "/home/ricky/dodofk/dataset/slue_sqa5/",
-        code_path: str = "/home/ricky/dodofk/dataset/slue_sqa_code_l22_c500",
+        code_path: str = DEFAULT_SLUE_UNIT_HF_PATH,
         pq_filename: str = "slue_sqa5_pq10_llama32_3b_clean.csv",
         corpus_filename: str = "slue_sqa5_corpus.csv",
         model_name_or_path: str = "google/flan-t5-base",
@@ -136,12 +142,26 @@ class SlueSQA5DatasetV2(Dataset):
         self.query_len = len(self.data)
         self.max_length = max_length
         self.truncate_offset = truncate_offset
+        if not 0 <= self.truncate_offset < self.max_length:
+            raise ValueError(
+                "truncate_offset must be non-negative and smaller than max_length "
+                f"(got truncate_offset={self.truncate_offset}, max_length={self.max_length})"
+            )
         self.split = split
-        self.code_path = code_path
+        self.code_path = resolve_unit_code_path(
+            code_path,
+            allow_patterns=PACKED_SLUE_PATTERNS,
+        )
         self.special_token = special_token
         self.lookup_file_name = lookup_file_name
         self.train_atomic = train_atomic
         self.atomic_offset = atomic_offset
+        self.query_store = load_packed_store(
+            os.path.join(self.code_path, f"{self.split}.npz")
+        )
+        self.document_store = load_packed_store(
+            os.path.join(self.code_path, "documents.npz")
+        )
         # Load pq data used to build a mapping from document_id to a unique identifier
         self.corpus_data = pd.read_csv(os.path.join(dataset_path, corpus_filename))
         # pq_data only used for build up document id to index mapping
@@ -188,6 +208,22 @@ class SlueSQA5DatasetV2(Dataset):
             self.valid_ids = list(
                 set(self.corpus_doc_id)
             )  # try to change numberic-id to docid
+
+    def _load_query_code(self, question_id) -> np.ndarray:
+        question_id = str(question_id)
+        if self.query_store is not None and question_id in self.query_store:
+            return self.query_store.get_code(question_id)
+        return np.loadtxt(
+            f"{self.code_path}/{self.split}_code/{question_id}.code"
+        ).astype(int)
+
+    def _load_document_code(self, doc_id) -> np.ndarray:
+        doc_id = str(doc_id)
+        if self.document_store is not None and doc_id in self.document_store:
+            return self.document_store.get_code(doc_id)
+        return np.loadtxt(
+            os.path.join(self.code_path, "document_code", f"{doc_id}.code")
+        ).astype(int)
 
     def build_code_lookup(self):
         """
@@ -247,12 +283,7 @@ class SlueSQA5DatasetV2(Dataset):
             if doc_id not in self.doc_id_2_idx:
                 self.doc_id_2_idx[doc_id] = len(self.doc_id_2_idx)
 
-            code_file_path = os.path.join(
-                self.code_path,
-                "document_code",
-                f"{doc_id}.code",
-            )
-            code = np.loadtxt(code_file_path).astype(int)
+            code = self._load_document_code(doc_id)
             code = np.vectorize(self.code_to_idx.get)(code)
 
             start_idx = 0
@@ -294,8 +325,7 @@ class SlueSQA5DatasetV2(Dataset):
             document_id = row["document_id"]
             # Attempt to load a precomputed passage discrete code file.
             # It is assumed that such files are stored under a folder named "{split}_passage_code".
-            code_file_path = f"{self.code_path}/{self.split}_code/{question_id}.code"
-            code = np.loadtxt(code_file_path).astype(int)
+            code = self._load_query_code(question_id)
             # Map original codes to discrete codes via our lookup mapping
             code = np.vectorize(self.code_to_idx.get)(code)
 
@@ -312,7 +342,7 @@ class SlueSQA5DatasetV2(Dataset):
             code = np.concatenate(
                 [[self.special_token], code, [1]]
             )  # Append EOS token (assumed token id 1) # pick token 32000 as an indicate to query task (which is added token for flan t5)
-            if len(code) > 512:
+            if len(code) > self.max_length:
                 # print("Code length is too long, need to be truncated ===========")
                 code = np.concatenate([code[: self.max_length - 1], [1]])
             if self.split == "train":
@@ -365,9 +395,7 @@ class SlueSQA5DatasetV2(Dataset):
         question_lengths = []
         tokenizer = AutoTokenizer.from_pretrained("google/mt5-small")
         for _, row in self.data.iterrows():
-            code = np.loadtxt(
-                f"{self.code_path}/{self.split}_code/{row['question_id']}.code",
-            ).astype(int)
+            code = self._load_query_code(row["question_id"])
             code_lengths.append(len(code))
 
             question_id = row["question_id"]

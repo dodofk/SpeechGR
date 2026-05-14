@@ -5,7 +5,8 @@ Train Flan-T5 for query generation on SLUE‑SQA5 using discrete codes.
 import os
 import logging
 import json
-from dataclasses import dataclass, field
+from collections import Counter
+from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from typing import Optional, List, Dict, Any
 
@@ -24,6 +25,13 @@ from transformers import (
 )
 import evaluate
 import wandb
+from hub_checkpoint import HubCheckpointArguments, build_hub_checkpoint_callbacks
+from unit_store import (
+    DEFAULT_SLUE_UNIT_HF_PATH,
+    PACKED_SLUE_PATTERNS,
+    load_packed_store,
+    resolve_unit_code_path,
+)
 
 # ---------------------------------------------
 #  Logging setup
@@ -33,6 +41,17 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
 )
+
+
+def _uses_wandb(report_to) -> bool:
+    if report_to is None:
+        return False
+    if isinstance(report_to, str):
+        values = [report_to]
+    else:
+        values = list(report_to)
+    values = {str(value).lower() for value in values}
+    return "wandb" in values or "all" in values
 
 
 def log_mem(stage: str):
@@ -74,7 +93,7 @@ class QueryGenDataset(Dataset):
         split: str,
         max_length: int = 512,
         dataset_path: str = "/home/ricky/dodofk/dataset/slue_sqa5/",
-        code_path: str = "/home/ricky/dodofk/dataset/slue_sqa_code_c512",
+        code_path: str = DEFAULT_SLUE_UNIT_HF_PATH,
         discrete_code_num: int = 512,
         special_token: int = 32000,
         lookup_file_name: Optional[
@@ -92,10 +111,19 @@ class QueryGenDataset(Dataset):
 
         self.split = split
         self.max_length = max_length
-        self.code_path = code_path
+        self.code_path = resolve_unit_code_path(
+            code_path,
+            allow_patterns=PACKED_SLUE_PATTERNS,
+        )
         self.special_token = special_token
         self.offset = offset
         self.label_max_length = label_max_length
+        self.query_store = load_packed_store(
+            os.path.join(self.code_path, f"{self.split}.npz")
+        )
+        self.document_store = load_packed_store(
+            os.path.join(self.code_path, "documents.npz")
+        )
         # load mapping CSV
         csv_path = os.path.join(dataset_path, f"{split}.csv")
         self.df = pd.read_csv(csv_path)
@@ -106,6 +134,20 @@ class QueryGenDataset(Dataset):
         self._build_data()
 
         print("Info dataset length: ", len(self.data))
+
+    def _load_query_code(self, qid: str) -> np.ndarray:
+        if self.query_store is not None and qid in self.query_store:
+            return self.query_store.get_code(qid)
+        return np.loadtxt(
+            os.path.join(self.code_path, f"{self.split}_code/{qid}.code")
+        ).astype(int)
+
+    def _load_document_code(self, did: str) -> np.ndarray:
+        if self.document_store is not None and did in self.document_store:
+            return self.document_store.get_code(did)
+        return np.loadtxt(
+            os.path.join(self.code_path, f"document_code/{did}.code")
+        ).astype(int)
 
     def _build_code_lookup(self, lookup_file_name: Optional[str]):
         if lookup_file_name:
@@ -122,9 +164,7 @@ class QueryGenDataset(Dataset):
             qid = str(row["question_id"])
             did = str(row["document_id"])
 
-            q_code = np.loadtxt(
-                os.path.join(self.code_path, f"{self.split}_code/{qid}.code")
-            ).astype(int)
+            q_code = self._load_query_code(qid)
             q_code = np.vectorize(self.code_to_idx.get)(q_code)
             
             if len(q_code) > self.label_max_length:
@@ -133,9 +173,7 @@ class QueryGenDataset(Dataset):
             q_seq = np.concatenate([q_code, [1]]) # as the length is not extreme strict, it could add 1 to the end
             
 
-            d_code = np.loadtxt(
-                os.path.join(self.code_path, f"document_code/{did}.code")
-            ).astype(int)
+            d_code = self._load_document_code(did)
             d_code = np.vectorize(self.code_to_idx.get)(d_code)
 
             cur_idx = 0
@@ -163,8 +201,9 @@ class QueryGenDataset(Dataset):
 
 
 class QGTrainer(Trainer):
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, generation_max_length: int = 302, **kwargs):
         super().__init__(*args, **kwargs)
+        self.generation_max_length = generation_max_length
 
     def compute_loss(self, model, inputs, return_outputs=False):
         return super().compute_loss(model, inputs, return_outputs)
@@ -177,7 +216,7 @@ class QGTrainer(Trainer):
         outputs = self.model.generate(
             input_ids=inputs["input_ids"].to(self.args.device),
             attention_mask=inputs["attention_mask"].to(self.args.device),
-            max_length=200,  # as our label is  all smaller than 200
+            max_length=self.generation_max_length,
         )
 
         return (
@@ -191,13 +230,29 @@ class QGTrainer(Trainer):
 #  Evaluation metric function
 # ---------------------------------------------
 class CustomEval:
-    def __init__(self, model_args):
+    def __init__(self, model_args, pad_token_id: int):
         self.model_args = model_args
+        self.ignored_token_ids = {self.model_args.special_token, 1, pad_token_id}
         # self.bleu_metric = evaluate.load("bleu")
         self.rouge_metric = evaluate.load("rouge")
 
     def __call__(self, eval_preds):
         return self.compute_metrics(eval_preds)
+
+    @staticmethod
+    def _unit_overlap(pred_tokens: List[str], label_tokens: List[str]) -> Dict[str, float]:
+        if not pred_tokens and not label_tokens:
+            return {"precision": 1.0, "recall": 1.0, "f1": 1.0}
+        if not pred_tokens or not label_tokens:
+            return {"precision": 0.0, "recall": 0.0, "f1": 0.0}
+
+        pred_counts = Counter(pred_tokens)
+        label_counts = Counter(label_tokens)
+        overlap = sum((pred_counts & label_counts).values())
+        precision = overlap / len(pred_tokens)
+        recall = overlap / len(label_tokens)
+        f1 = 2 * precision * recall / (precision + recall) if precision + recall else 0.0
+        return {"precision": precision, "recall": recall, "f1": f1}
 
     def compute_metrics(self, eval_preds):
         """
@@ -219,7 +274,7 @@ class CustomEval:
             pred_tokens = [
                 str(tok)
                 for tok in preds[i]
-                if tok not in {self.model_args.special_token, 1}
+                if tok not in self.ignored_token_ids
             ]
 
             # likewise for labels, also drop the -100 pads
@@ -227,7 +282,7 @@ class CustomEval:
             label_tokens = [
                 str(tok)
                 for tok in label_seq
-                if tok not in {self.model_args.special_token, 1}
+                if tok not in self.ignored_token_ids
             ]
 
             decoded_preds.append(pred_tokens)
@@ -244,14 +299,27 @@ class CustomEval:
         
         # save the pred and label strs with timestamp as json
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        os.makedirs("qg_output", exist_ok=True)
         with open(f"qg_output/pred_label_strs_{timestamp}.json", "w") as f:
             json.dump({"pred_strs": pred_strs, "label_strs": label_strs}, f)
+
+        overlaps = [
+            self._unit_overlap(pred_tokens, label_tokens)
+            for pred_tokens, label_tokens in zip(decoded_preds, decoded_labels)
+        ]
+        pred_lengths = [len(tokens) for tokens in decoded_preds]
+        label_lengths = [len(tokens) for tokens in decoded_labels]
         
         return {
             "rougeL": rouge["rougeL"],
             "rouge1": rouge["rouge1"],
             "rouge2": rouge["rouge2"],
             "rougeLsum": rouge["rougeLsum"],
+            "unit_precision": float(np.mean([x["precision"] for x in overlaps])),
+            "unit_recall": float(np.mean([x["recall"] for x in overlaps])),
+            "unit_f1": float(np.mean([x["f1"] for x in overlaps])),
+            "pred_len": float(np.mean(pred_lengths)),
+            "label_len": float(np.mean(label_lengths)),
         }
 
 
@@ -276,6 +344,10 @@ class ModelArguments:
         default=None,
         metadata={"help": "Path to the model checkpoint to load"},
     )
+    save_final_model: bool = field(
+        default=True,
+        metadata={"help": "Save final model after training."},
+    )
 
 
 @dataclass
@@ -285,7 +357,7 @@ class DataTrainingArguments:
         metadata={"help": "Base path to SLUE-SQA5 CSV files"},
     )
     code_path: str = field(
-        default="/home/ricky/dodofk/dataset/slue_sqa_code_c512",
+        default=DEFAULT_SLUE_UNIT_HF_PATH,
         metadata={"help": "Path to precomputed .code files"},
     )
     split: str = field(
@@ -296,8 +368,18 @@ class DataTrainingArguments:
         default=512,
         metadata={"help": "Max sequence length for both src and tgt"},
     )
+    label_max_length: int = field(
+        default=300,
+        metadata={"help": "Max query unit length before appending EOS"},
+    )
+    generation_max_length: Optional[int] = field(
+        default=None,
+        metadata={
+            "help": "Max generated sequence length. Defaults to label_max_length + 2."
+        },
+    )
     discrete_code_num: int = field(
-        default=512,
+        default=500,
         metadata={"help": "Size of discrete code lookup"},
     )
     lookup_file_name: Optional[str] = field(
@@ -325,21 +407,30 @@ class WandBArguments:
 
 def main() -> None:
     parser = HfArgumentParser(
-        (ModelArguments, DataTrainingArguments, WandBArguments, TrainingArguments)
+        (
+            ModelArguments,
+            DataTrainingArguments,
+            WandBArguments,
+            HubCheckpointArguments,
+            TrainingArguments,
+        )
     )
-    model_args, data_args, wandb_args, training_args = (
+    model_args, data_args, wandb_args, hub_args, training_args = (
         parser.parse_args_into_dataclasses()
     )
 
-    # ensure wandb logging
-    if not training_args.report_to:
-        training_args.report_to = ["wandb"]
-
-    wandb.init(
-        project=wandb_args.project,
-        config=training_args.to_dict(),
-        notes=wandb_args.description,
-    )
+    use_wandb = _uses_wandb(training_args.report_to)
+    if use_wandb and training_args.process_index == 0:
+        wandb.init(
+            project=wandb_args.project,
+            name=training_args.run_name,
+            config={
+                "training": training_args.to_dict(),
+                "model": asdict(model_args),
+                "data": asdict(data_args),
+            },
+            notes=wandb_args.description,
+        )
 
     logger.info("Training/evaluation parameters: %s", training_args)
 
@@ -352,6 +443,11 @@ def main() -> None:
         )
 
     tokenizer = T5Tokenizer.from_pretrained(model_args.model_name_or_path)
+    generation_max_length = (
+        data_args.generation_max_length
+        if data_args.generation_max_length is not None
+        else data_args.label_max_length + 2
+    )
 
     # 2. Prepare datasets
     train_ds = QueryGenDataset(
@@ -362,6 +458,7 @@ def main() -> None:
         discrete_code_num=data_args.discrete_code_num,
         special_token=model_args.special_token,
         lookup_file_name=data_args.lookup_file_name,
+        label_max_length=data_args.label_max_length,
     )
     # for eval, use validation split
     eval_ds = QueryGenDataset(
@@ -372,6 +469,7 @@ def main() -> None:
         discrete_code_num=data_args.discrete_code_num,
         special_token=model_args.special_token,
         lookup_file_name=data_args.lookup_file_name,
+        label_max_length=data_args.label_max_length,
     )
     
     # 3. Data collator
@@ -381,7 +479,7 @@ def main() -> None:
         label_pad_token_id=-100,
     )
 
-    compute_metrics = CustomEval(model_args)
+    compute_metrics = CustomEval(model_args, pad_token_id=tokenizer.pad_token_id)
 
     # 4. Initialize Trainer
     trainer = QGTrainer(
@@ -391,7 +489,8 @@ def main() -> None:
         eval_dataset=eval_ds,
         data_collator=data_collator,
         compute_metrics=compute_metrics,
-        # callbacks=[MemoryCallback()],
+        generation_max_length=generation_max_length,
+        callbacks=build_hub_checkpoint_callbacks(hub_args, tokenizer=tokenizer),
     )
 
     # 5. Train
@@ -399,9 +498,13 @@ def main() -> None:
     trainer.train()
 
     # 6. Save
-    logger.info("Saving final model to %s", model_args.final_model_dir)
-    trainer.save_model(model_args.final_model_dir)
-    wandb.finish()
+    if model_args.save_final_model:
+        logger.info("Saving final model to %s", model_args.final_model_dir)
+        trainer.save_model(model_args.final_model_dir)
+    else:
+        logger.info("Skipping final model save because save_final_model=False")
+    if use_wandb and training_args.process_index == 0 and wandb.run is not None:
+        wandb.finish()
 
 
 if __name__ == "__main__":

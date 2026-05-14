@@ -28,13 +28,26 @@ import numpy as np
 import torch
 import wandb
 from torch.utils.data import DataLoader
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from typing import Optional, List
 import json
 from tqdm import tqdm
 from model import ContinousEmbT5
+from hub_checkpoint import HubCheckpointArguments, build_hub_checkpoint_callbacks
+from unit_store import DEFAULT_SLUE_UNIT_HF_PATH
 
 set_seed(42)
+
+
+def _uses_wandb(report_to) -> bool:
+    if report_to is None:
+        return False
+    if isinstance(report_to, str):
+        values = [report_to]
+    else:
+        values = list(report_to)
+    values = {str(value).lower() for value in values}
+    return "wandb" in values or "all" in values
 
 
 @dataclass
@@ -46,14 +59,10 @@ class RunArguments:
     top_k: Optional[int] = field(default=10)
     num_return_sequences: Optional[int] = field(default=10)
     run_notes: str = field(default="")
-    code_path: str = field(default="/home/ricky/dodofk/dataset/slue_sqa_code_c512")
+    code_path: str = field(default=DEFAULT_SLUE_UNIT_HF_PATH)
     dataset_path: str = field(default="/home/ricky/dodofk/dataset/slue_sqa5/")
-    run_notes: str = field(default="")
     special_token: Optional[int] = field(default=32000)
     discrete_code_num: Optional[int] = field(default=500)
-    code_path: Optional[str] = field(
-        default="/home/ricky/dodofk/dataset/slue_sqa_code_c512"
-    )
     lookup_file_name: Optional[str] = field(default=None)
     train_continuous_embedding: Optional[bool] = field(default=False)
     downsample_factor: int = field(default=2)
@@ -95,12 +104,12 @@ def make_compute_metrics(tokenizer, valid_ids):
         with open("eval_results.json", "w") as f:
             json.dump(metrics, f, indent=4)
 
-        # Create a WandB artifact and add the JSON file.
-        artifact = wandb.Artifact(
-            "eval_results", type="evaluation", description="Evaluation results"
-        )
-        artifact.add_file("eval_results.json")
-        wandb.log_artifact(artifact)
+        if wandb.run is not None:
+            artifact = wandb.Artifact(
+                "eval_results", type="evaluation", description="Evaluation results"
+            )
+            artifact.add_file("eval_results.json")
+            wandb.log_artifact(artifact)
 
         # Also save the raw predictions and label_ids.
         raw_data = {
@@ -118,14 +127,13 @@ def make_compute_metrics(tokenizer, valid_ids):
         with open("eval_raw.json", "w") as f:
             json.dump(raw_data, f, indent=4)
 
-        raw_artifact = wandb.Artifact(
-            "eval_raw", type="raw_data", description="Raw predictions and label ids"
-        )
-        raw_artifact.add_file("eval_raw.json")
-        wandb.log_artifact(raw_artifact)
-
-        # Also log the metrics directly to WandB dashboard.
-        wandb.log(metrics)
+        if wandb.run is not None:
+            raw_artifact = wandb.Artifact(
+                "eval_raw", type="raw_data", description="Raw predictions and label ids"
+            )
+            raw_artifact.add_file("eval_raw.json")
+            wandb.log_artifact(raw_artifact)
+            wandb.log(metrics)
 
         return metrics
 
@@ -134,13 +142,21 @@ def make_compute_metrics(tokenizer, valid_ids):
 
 def main():
 
-    parser = HfArgumentParser((TrainingArguments, RunArguments))
-    training_args, run_args = parser.parse_args_into_dataclasses()
+    parser = HfArgumentParser((TrainingArguments, RunArguments, HubCheckpointArguments))
+    training_args, run_args, hub_args = parser.parse_args_into_dataclasses()
 
-    if training_args.local_rank == 0:  # only on main process
-        # Initialize wandb run
+    use_wandb = _uses_wandb(training_args.report_to)
+    if use_wandb and training_args.process_index == 0:
         wandb.login()
-        wandb.init(project="DSI", name=training_args.run_name, notes=run_args.run_notes)
+        wandb.init(
+            project="DSI",
+            name=training_args.run_name,
+            notes=run_args.run_notes,
+            config={
+                "training": training_args.to_dict(),
+                "run": asdict(run_args),
+            },
+        )
 
     tokenizer = AutoTokenizer.from_pretrained(run_args.model_name, cache_dir="cache")
     fast_tokenizer = AutoTokenizer.from_pretrained(
@@ -251,6 +267,7 @@ def main():
         id_max_length=run_args.id_max_length,
         restrict_decode_vocab=restrict_decode_vocab,
         train_continuous_embedding=run_args.train_continuous_embedding,
+        callbacks=build_hub_checkpoint_callbacks(hub_args, tokenizer=tokenizer),
     )
 
     trainer.train()

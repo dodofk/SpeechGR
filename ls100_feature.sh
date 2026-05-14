@@ -17,4 +17,5 @@ python speech-content-encoder/S2U.py \
   --sample_rate 16000 \
   --chunk_length 250000 \
   --device cuda \
+  --save_format packed \
   --task librispeech

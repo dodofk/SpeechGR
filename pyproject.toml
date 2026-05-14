@@ -10,6 +10,7 @@ dependencies = [
     "torchaudio",
     "transformers==4.44.2",
     "datasets",
+    "huggingface_hub",
     "accelerate",
     "evaluate",
     "rouge-score",

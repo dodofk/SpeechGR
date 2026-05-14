@@ -8,6 +8,7 @@ wandb
 sentencepiece
 transformers==4.44.2
 datasets
+huggingface_hub
 accelerate
 librosa
 soundfile

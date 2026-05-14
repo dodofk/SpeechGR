@@ -9,6 +9,7 @@ from datasets import load_dataset
 import argparse
 from dataclasses import dataclass
 from typing import Optional, Tuple
+import sys
 
 import torch
 import torch.nn.functional as F
@@ -19,6 +20,9 @@ import h5py
 
 from tqdm import tqdm
 import logging
+
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from unit_store import PackedUnitWriter
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -41,7 +45,8 @@ class Config:
     chunk_length: int = 250000
     device: str = "cuda" if torch.cuda.is_available() else "cpu"
     task: str = "slue_sqa5"
-    save_format: str = "h5py"  # Options: "code", "h5py", "both"
+    save_format: str = "packed"  # Options: "packed", "code", "h5py", "both", "all"
+    packed_compressed: bool = False
     use_vad: bool = False  # Whether to use VAD for silence removal
     vad_threshold: float = 0.5  # VAD threshold for speech detection
 
@@ -51,14 +56,18 @@ class Config:
             "librispeech",
         ], "task must be either slue_sqa5 or librispeech"
         assert self.save_format in [
+            "packed",
+            "packed_code",
             "code",
             "h5py",
             "both",
-        ], "save_format must be one of 'code', 'h5py', or 'both'"
+            "all",
+        ], "save_format must be one of 'packed', 'packed_code', 'code', 'h5py', 'both', or 'all'"
 
         # Create a shorthand for checking if we should save in a particular format
-        self.save_code = self.save_format in ["code", "both"]
-        self.save_h5py = self.save_format in ["h5py", "both"]
+        self.save_packed = self.save_format in ["packed", "packed_code", "all"]
+        self.save_code = self.save_format in ["code", "both", "packed_code", "all"]
+        self.save_h5py = self.save_format in ["h5py", "both", "all"]
 
 
 def load_vad_model(use_cuda: bool):
@@ -353,13 +362,11 @@ def setup_odqa_directories(config: Config, splits: list[str]):
     """
     Create necessary directories for storing discrete codes and related metadata for open domain question answering dataset.
     """
-    # Always create directories for code files (they might be needed even if we only save h5py)
-    for split in splits:
-        os.makedirs(os.path.join(config.output_dir, f"{split}_code"), exist_ok=True)
-    os.makedirs(os.path.join(config.output_dir, "document_code"), exist_ok=True)
-
-    # Ensure the output directory exists for h5py files
     os.makedirs(config.output_dir, exist_ok=True)
+    if config.save_code:
+        for split in splits:
+            os.makedirs(os.path.join(config.output_dir, f"{split}_code"), exist_ok=True)
+        os.makedirs(os.path.join(config.output_dir, "document_code"), exist_ok=True)
 
 
 def process_librispeech(config: Config, extractor, apply_kmeans: ApplyKmeans):
@@ -394,6 +401,7 @@ def process_librispeech(config: Config, extractor, apply_kmeans: ApplyKmeans):
         counts_dataset = h5_file.create_dataset(
             "counts", shape=(len(flac_files),), dtype=vlen_int_dtype
         )
+    packed_writer = PackedUnitWriter() if config.save_packed else None
 
     for idx, flac_file in enumerate(
         tqdm(flac_files, desc="Processing LibriSpeech dataset")
@@ -402,7 +410,7 @@ def process_librispeech(config: Config, extractor, apply_kmeans: ApplyKmeans):
         file_code_path = os.path.join(config.output_dir, f"{flac_fname}.code")
 
         # Skip if already processed and only saving to code files
-        if os.path.exists(file_code_path) and not config.save_h5py:
+        if os.path.exists(file_code_path) and not config.save_h5py and not config.save_packed:
             fname_list.append(flac_fname)
             continue
 
@@ -433,6 +441,12 @@ def process_librispeech(config: Config, extractor, apply_kmeans: ApplyKmeans):
             ids_dataset[idx] = flac_fname
             codes_dataset[idx] = merged_code.long().numpy()
             counts_dataset[idx] = counts.long().numpy()
+        if packed_writer is not None:
+            packed_writer.add(
+                flac_fname,
+                merged_code.long().numpy(),
+                counts.long().numpy(),
+            )
 
     # Save the list of file names
     with open(os.path.join(config.output_dir, "fname_list.json"), "w") as f:
@@ -441,6 +455,11 @@ def process_librispeech(config: Config, extractor, apply_kmeans: ApplyKmeans):
     # Close h5py file if used
     if config.save_h5py:
         h5_file.close()
+    if packed_writer is not None:
+        packed_writer.save(
+            os.path.join(config.output_dir, "librispeech.npz"),
+            compressed=config.packed_compressed,
+        )
 
 
 def process_all_documents(
@@ -476,6 +495,7 @@ def process_all_documents(
             "counts", shape=(len(all_documents),), dtype=vlen_int_dtype
         )
         p_h5_file.create_dataset("text", shape=(len(all_documents),), dtype=str_dtype)
+    packed_writer = PackedUnitWriter() if config.save_packed else None
 
     # Process each document
     for idx, (p_id, doc_data) in enumerate(
@@ -488,7 +508,7 @@ def process_all_documents(
         # Process document if needed
         p_should_process = (
             config.save_code and not os.path.exists(p_code_path)
-        ) or config.save_h5py
+        ) or config.save_h5py or config.save_packed
         if p_should_process:
             p_tensor = torch.FloatTensor(p_wavs)
             p_merged_code, p_counts = extract_discrete_code(
@@ -518,10 +538,22 @@ def process_all_documents(
                 p_h5_file["codes"][idx] = p_merged_code.long().numpy()
                 p_h5_file["counts"][idx] = p_counts.long().numpy()
                 p_h5_file["text"][idx] = p_text
+            if packed_writer is not None:
+                packed_writer.add(
+                    p_id,
+                    p_merged_code.long().numpy(),
+                    p_counts.long().numpy(),
+                    text=p_text,
+                )
 
     # Close h5py file if used
     if config.save_h5py:
         p_h5_file.close()
+    if packed_writer is not None:
+        packed_writer.save(
+            os.path.join(config.output_dir, "documents.npz"),
+            compressed=config.packed_compressed,
+        )
 
 
 def process_sqa_split_questions(
@@ -554,6 +586,7 @@ def process_sqa_split_questions(
         q_doc_id_dataset = q_h5_file.create_dataset(
             "doc_ids", shape=(len(files),), dtype=str_dtype
         )
+    packed_writer = PackedUnitWriter() if config.save_packed else None
 
     for idx, data in enumerate(tqdm(files, desc=f"Processing {split} questions")):
         q_wavs = data["question_audio"]["array"]
@@ -566,7 +599,7 @@ def process_sqa_split_questions(
         # Process question if needed
         q_should_process = (
             config.save_code and not os.path.exists(q_code_path)
-        ) or config.save_h5py
+        ) or config.save_h5py or config.save_packed
         if q_should_process:
             q_tensor = torch.FloatTensor(q_wavs)
             q_merged_code, q_counts = extract_discrete_code(
@@ -597,10 +630,23 @@ def process_sqa_split_questions(
                 q_counts_dataset[idx] = q_counts.long().numpy()
                 q_text_dataset[idx] = q_text
                 q_doc_id_dataset[idx] = p_id
+            if packed_writer is not None:
+                packed_writer.add(
+                    q_id,
+                    q_merged_code.long().numpy(),
+                    q_counts.long().numpy(),
+                    text=q_text,
+                    doc_id=p_id,
+                )
 
     # Close h5py file if used
     if config.save_h5py:
         q_h5_file.close()
+    if packed_writer is not None:
+        packed_writer.save(
+            os.path.join(config.output_dir, f"{split}.npz"),
+            compressed=config.packed_compressed,
+        )
 
 
 def parse_args():
@@ -641,9 +687,14 @@ def parse_args():
     parser.add_argument(
         "--save_format",
         type=str,
-        choices=["code", "h5py", "both"],
-        default="h5py",
-        help="Format to save data: 'code' for individual files, 'h5py' for h5py format, or 'both' for both formats",
+        choices=["packed", "packed_code", "code", "h5py", "both", "all"],
+        default="packed",
+        help="Format to save data: 'packed' for one .npz per split/corpus, 'code' for individual files, 'h5py', 'both', 'packed_code', or 'all'",
+    )
+    parser.add_argument(
+        "--packed_compressed",
+        action="store_true",
+        help="Compress packed .npz files. Smaller archives but slower extraction/loading.",
     )
     parser.add_argument(
         "--use_vad",
@@ -673,6 +724,7 @@ def main():
         device=args.device,
         task=args.task,
         save_format=args.save_format,
+        packed_compressed=args.packed_compressed,
         use_vad=args.use_vad,
         vad_threshold=args.vad_threshold,
     )
