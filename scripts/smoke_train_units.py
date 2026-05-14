@@ -36,6 +36,7 @@ from scripts.smoke_test_dataloaders import (  # noqa: E402
     write_csvs_from_store,
     write_packed_codes,
 )
+from t5_pretrain import DataCollatorForT5SpanCorruption, DiscreteCodeDataset  # noqa: E402
 from trainer import DSITrainer  # noqa: E402
 
 
@@ -226,9 +227,55 @@ def run_hub_checkpoint_smoke(
     )
 
 
+def run_t5_pretrain_smoke(
+    args,
+    code_dir: Path,
+    discrete_code_num: int,
+):
+    tokenizer = AutoTokenizer.from_pretrained(args.tokenizer_name)
+    model = make_tiny_t5(tokenizer, args.special_token)
+    token_file = Path(args.output_dir) / "t5pt_unit_token_lookup.txt"
+    train_ds = DiscreteCodeDataset(
+        max_length=args.max_length,
+        chunk_offset=args.truncate_offset,
+        code_dir=str(code_dir),
+        discrete_code_num=discrete_code_num,
+        split="train",
+        token_file=str(token_file),
+        tokenizer_name_or_path=args.tokenizer_name,
+        lookup_source_csv=None,
+        validation_fraction=0.5,
+        min_chunk_length=2,
+        sentinel_start_id=32099,
+        sentinel_direction=-1,
+    )
+    trainer = Trainer(
+        model=model,
+        args=make_training_args(args, Path(args.output_dir) / "t5pt"),
+        train_dataset=train_ds,
+        data_collator=DataCollatorForT5SpanCorruption(
+            tokenizer=tokenizer,
+            model=model,
+            mask_prob=0.2,
+            mean_span_length=3,
+            sentinel_start_id=32099,
+            sentinel_direction=-1,
+        ),
+    )
+    result = trainer.train()
+    print(
+        f"t5 pretrain smoke passed: global_step={trainer.state.global_step} "
+        f"metrics={result.metrics}"
+    )
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--mode", choices=["dsi", "qg", "both", "hub"], default="both")
+    parser.add_argument(
+        "--mode",
+        choices=["dsi", "qg", "both", "hub", "t5pt"],
+        default="both",
+    )
     parser.add_argument("--code-dir", default=None, help="Packed unit directory to test.")
     parser.add_argument(
         "--work-dir",
@@ -310,6 +357,8 @@ def main() -> None:
                 lookup_path,
                 discrete_code_num,
             )
+        if args.mode == "t5pt":
+            run_t5_pretrain_smoke(args, code_dir, discrete_code_num)
     finally:
         if not args.keep:
             shutil.rmtree(root, ignore_errors=True)

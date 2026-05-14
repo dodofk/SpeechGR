@@ -105,7 +105,7 @@ def _random_spans_noise_mask(
 
 
 def random_spans_noise_masking(
-    token_ids: Union[List[int], torch.Tensor],
+    token_ids: Union[List[int], torch.Tensor, np.ndarray],
     mask_prob: float = 0.15,
     mean_span_length: int = 3,
     sentinel_start_id: int = 32000,
@@ -129,11 +129,15 @@ def random_spans_noise_masking(
                        sentinel_0 masked_span_0 sentinel_1 masked_span_1 ... eos
     """
     if isinstance(token_ids, torch.Tensor):
-        token_ids = token_ids.tolist()
+        token_ids = token_ids.detach().cpu().tolist()
+    elif isinstance(token_ids, np.ndarray):
+        token_ids = token_ids.reshape(-1).tolist()
+    else:
+        token_ids = list(token_ids)
 
     if sentinel_direction not in {-1, 1}:
         raise ValueError("sentinel_direction must be 1 or -1")
-    if not token_ids:
+    if len(token_ids) == 0:
         return ([eos_token_id] if eos_token_id is not None else []), (
             [eos_token_id] if eos_token_id is not None else []
         )
