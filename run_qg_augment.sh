@@ -11,10 +11,32 @@ OUTPUT_DATASET_PATH="${OUTPUT_DATASET_PATH:-data/slue_sqa5_qg_aug_unitpt50k_ckpt
 OUTPUT_CODE_DIR="${OUTPUT_CODE_DIR:-data/slue_sqa5_qg_aug_unitpt50k_ckpt10000_codes}"
 MODEL_NAME_OR_PATH="${MODEL_NAME_OR_PATH:-google/flan-t5-base}"
 PYTHON_BIN="${PYTHON_BIN:-python3}"
+OVERWRITE="${OVERWRITE:-True}"
 
 if [[ -z "${DATASET_PATH}" ]]; then
   echo "Set DATASET_PATH to the SLUE-SQA5 metadata directory before QG augmentation." >&2
   exit 1
+fi
+
+is_true() {
+  case "$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')" in
+    1|true|yes|on) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+EXTRA_ARGS=()
+if is_true "${DO_SAMPLE:-False}"; then
+  EXTRA_ARGS+=(--do_sample --top_p "${TOP_P:-0.95}" --temperature "${TEMPERATURE:-1.0}")
+fi
+if [[ -n "${MAX_DOCUMENTS:-}" ]]; then
+  EXTRA_ARGS+=(--max_documents "${MAX_DOCUMENTS}")
+fi
+if is_true "${COMPRESSED:-False}"; then
+  EXTRA_ARGS+=(--compressed)
+fi
+if is_true "${OVERWRITE}"; then
+  EXTRA_ARGS+=(--overwrite)
 fi
 
 "${PYTHON_BIN}" scripts/generate_qg_augmented_units.py \
@@ -33,4 +55,4 @@ fi
   --num_beams "${NUM_BEAMS:-1}" \
   --discrete_code_num "${DISCRETE_CODE_NUM:-500}" \
   --bf16 \
-  --overwrite
+  "${EXTRA_ARGS[@]}"

@@ -181,6 +181,22 @@ export PYTHON_BIN=".venv/bin/python"
 bash run_qg_augment.sh
 ```
 
+For stochastic multi-query augmentation, sample several outputs per document
+chunk:
+
+```bash
+export DO_SAMPLE=True
+export NUM_RETURN_SEQUENCES=3
+export TOP_P=0.95
+export TEMPERATURE=1.0
+
+bash run_qg_augment.sh
+```
+
+With the current SLUE-SQA5 corpus chunking this generates about three document
+chunks per document, so `NUM_RETURN_SEQUENCES=3` yields about nine pseudo
+queries per document on average.
+
 Then train GR on the augmented metadata/code store:
 
 ```bash

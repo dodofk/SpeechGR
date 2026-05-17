@@ -159,6 +159,30 @@ export OUTPUT_CODE_DIR=data/slue_sqa5_qg_aug_unitpt50k_ckpt10000_codes
 bash run_qg_augment.sh
 ```
 
+For multi-query augmentation, enable sampling and set how many outputs to keep
+per document chunk:
+
+```bash
+export DO_SAMPLE=True
+export NUM_RETURN_SEQUENCES=3
+export TOP_P=0.95
+export TEMPERATURE=1.0
+
+bash run_qg_augment.sh
+```
+
+Current corpus chunking produces `47,343` chunks from `15,883` documents
+(`2.98` chunks per document on average). Therefore:
+
+```text
+NUM_RETURN_SEQUENCES=1 -> 47,343 pseudo queries, 2.98/doc average
+NUM_RETURN_SEQUENCES=3 -> 142,029 pseudo queries, 8.94/doc average
+NUM_RETURN_SEQUENCES=5 -> 236,715 pseudo queries, 14.90/doc average
+```
+
+Use `3` as the first serious QG-augmentation run; use `5` only if disk/time are
+acceptable and generated samples look diverse.
+
 This keeps the original metadata and packed unit store untouched. The augmented
 `train.csv` adds generated `qg_*` question ids, and the augmented `train.npz`
 stores their generated raw unit-code sequences.
