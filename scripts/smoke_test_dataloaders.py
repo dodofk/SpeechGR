@@ -204,6 +204,7 @@ def run_smoke(
         discrete_code_num=discrete_code_num,
         lookup_file_name=str(lookup_path),
         label_max_length=qg_label_max_length,
+        offset=2,
     )
     if qg_ds.query_store is None or qg_ds.document_store is None:
         raise AssertionError("QG dataset did not open packed stores")

@@ -141,3 +141,49 @@ bash run_qg.sh
 
 `run_qg.sh` also supports `MODEL_PATH=/path/to/unit-t5-checkpoint` and the same
 `HF_CHECKPOINT_*`, `SAVE_CHECKPOINTS`, and `SAVE_FINAL_MODEL` switches.
+
+On a data server, local checkpoints are written under `ckpts/flan-t5-QG/` and
+the final model is written to `ckpts/flan-t5-querygen/`. Set
+`HF_CHECKPOINT_REPO_ID` when you also want the server to mirror compact
+`latest/` and `best/` model snapshots to Hugging Face:
+
+```bash
+export DATASET_PATH="/home/ricky/SpeechGR/data/slue_sqa5_metadata"
+export CODE_DIR="hf://datasets/dodofk/slue-sqa-code-l22-c500"
+export MODEL_NAME_OR_PATH="google/flan-t5-base"
+export MODEL_PATH="ckpts/audio-t5-pt-flant5-base-c500-l22/checkpoint-50000"
+
+export HF_HOME="/storage/ricky/speechgr/hf_cache"
+mkdir -p "$HF_HOME"
+
+export WANDB_API_KEY="..."
+export HF_TOKEN="..."
+export HF_CHECKPOINT_REPO_ID="your-hf-user/speechgr-qg-unitpt50k-live"
+export HF_CHECKPOINT_PRIVATE="False"
+export HF_CHECKPOINT_MODE="model"
+
+bash run_qg.sh
+```
+
+Leave `HF_CHECKPOINT_REPO_ID` unset to save only local checkpoints on the data
+server.
+
+Generate QG pseudo-query augmentation from a trained QG checkpoint:
+
+```bash
+export DATASET_PATH="/home/ricky/SpeechGR/data/slue_sqa5_metadata"
+export CODE_DIR="hf://datasets/dodofk/slue-sqa-code-l22-c500"
+export QG_MODEL_PATH="ckpts/flan-t5-QG-unitpt50k-b12/checkpoint-10000"
+export OUTPUT_DATASET_PATH="data/slue_sqa5_qg_aug_unitpt50k_ckpt10000"
+export OUTPUT_CODE_DIR="data/slue_sqa5_qg_aug_unitpt50k_ckpt10000_codes"
+export PYTHON_BIN=".venv/bin/python"
+
+bash run_qg_augment.sh
+```
+
+Then train GR on the augmented metadata/code store:
+
+```bash
+export PYTHON_BIN=".venv/bin/python"
+bash run_gr_qg_augmented.sh
+```

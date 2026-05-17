@@ -30,6 +30,13 @@ HF_CHECKPOINT_ARGS=()
 MODEL_PATH="${MODEL_PATH:-ckpts/audio-t5-pt-flant5-base-c500-l22/checkpoint-219000}"
 DATASET_PATH="${DATASET_PATH:-}"
 CODE_DIR="${CODE_DIR:-hf://datasets/dodofk/slue-sqa-code-l22-c500}"
+RUN_NAME="${RUN_NAME:-slue_sqa5-flan-t5-base-DSI-QG-q&d-both-du-l22-c500-wpt-d512}"
+OUTPUT_DIR="${OUTPUT_DIR:-models/slue_sqa5-flan-t5-base-DSI-QG-q&d-both-du-l22-c500-wpt-d512}"
+PER_DEVICE_TRAIN_BATCH_SIZE="${PER_DEVICE_TRAIN_BATCH_SIZE:-16}"
+PER_DEVICE_EVAL_BATCH_SIZE="${PER_DEVICE_EVAL_BATCH_SIZE:-8}"
+GRADIENT_ACCUMULATION_STEPS="${GRADIENT_ACCUMULATION_STEPS:-8}"
+REPORT_TO="${REPORT_TO:-wandb}"
+PYTHON_BIN="${PYTHON_BIN:-python3}"
 if [[ -z "${DATASET_PATH}" ]]; then
   echo "Set DATASET_PATH to the SLUE-SQA5 metadata directory before running GR." >&2
   exit 1
@@ -67,23 +74,23 @@ fi
 #   --use_vad
 
 echo "Step 2: Running DSI model training with run.py"
-python3 run.py \
+"${PYTHON_BIN}" run.py \
     --model_name "google/flan-t5-base" \
-    --run_name "slue_sqa5-flan-t5-base-DSI-QG-q&d-both-du-l22-c500-wpt-d512" \
+    --run_name "${RUN_NAME}" \
     --max_length 512 \
-    --output_dir "models/slue_sqa5-flan-t5-base-DSI-QG-q&d-both-du-l22-c500-wpt-d512" \
+    --output_dir "${OUTPUT_DIR}" \
     --learning_rate 0.0001 \
     --lr_scheduler_type linear \
     --warmup_steps 10000 \
     --max_grad_norm 1.0 \
-    --per_device_train_batch_size 16 \
-    --per_device_eval_batch_size  8 \
+    --per_device_train_batch_size "${PER_DEVICE_TRAIN_BATCH_SIZE}" \
+    --per_device_eval_batch_size "${PER_DEVICE_EVAL_BATCH_SIZE}" \
     --evaluation_strategy steps \
     --eval_steps 2500 \
     --max_steps 100000 \
     --dataloader_num_workers 0 \
-    --gradient_accumulation_steps 8 \
-    --report_to wandb \
+    --gradient_accumulation_steps "${GRADIENT_ACCUMULATION_STEPS}" \
+    --report_to "${REPORT_TO}" \
     --logging_steps 200 \
     --dataloader_drop_last False \
     --run_notes "fine-tune on flan-t5 with 500 cluster discrete unit on layer 22 with pretrain checkpoint with document max length 512 " \

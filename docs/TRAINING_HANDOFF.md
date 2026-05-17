@@ -113,6 +113,65 @@ HF_CHECKPOINT_REPO_ID=dodofk/speechgr-qg-live \
 bash run_qg.sh
 ```
 
+Joyboy/data-server QG from the 50k unit-pretrained checkpoint, with local
+checkpoint saving plus Hugging Face latest/best mirroring:
+
+```bash
+cd /home/ricky/SpeechGR
+source .venv/bin/activate
+
+export DATASET_PATH=/home/ricky/SpeechGR/data/slue_sqa5_metadata
+export CODE_DIR=hf://datasets/dodofk/slue-sqa-code-l22-c500
+export MODEL_NAME_OR_PATH=google/flan-t5-base
+export MODEL_PATH=ckpts/audio-t5-pt-flant5-base-c500-l22/checkpoint-50000
+
+export HF_HOME=/storage/ricky/speechgr/hf_cache
+mkdir -p "$HF_HOME"
+
+export WANDB_API_KEY=...
+export HF_TOKEN=...
+export HF_CHECKPOINT_REPO_ID=dodofk/speechgr-qg-unitpt50k-live
+export HF_CHECKPOINT_PRIVATE=False
+export HF_CHECKPOINT_MODE=model
+
+bash run_qg.sh
+```
+
+Local QG checkpoints are saved under `ckpts/flan-t5-QG/`, and the final model is
+saved to `ckpts/flan-t5-querygen/`. Leave `HF_CHECKPOINT_REPO_ID` unset if you
+only want local server checkpoints.
+
+## QG Augmentation Then GR
+
+Build a separate augmented training set from the best QG checkpoint:
+
+```bash
+cd /home/ricky/SpeechGR
+export CUDA_VISIBLE_DEVICES=1
+export HF_HOME=/storage/ricky/speechgr/hf_cache
+export PYTHON_BIN=.venv/bin/python
+export DATASET_PATH=data/slue_sqa5_metadata
+export CODE_DIR=hf://datasets/dodofk/slue-sqa-code-l22-c500
+export QG_MODEL_PATH=ckpts/flan-t5-QG-unitpt50k-b12/checkpoint-10000
+export OUTPUT_DATASET_PATH=data/slue_sqa5_qg_aug_unitpt50k_ckpt10000
+export OUTPUT_CODE_DIR=data/slue_sqa5_qg_aug_unitpt50k_ckpt10000_codes
+
+bash run_qg_augment.sh
+```
+
+This keeps the original metadata and packed unit store untouched. The augmented
+`train.csv` adds generated `qg_*` question ids, and the augmented `train.npz`
+stores their generated raw unit-code sequences.
+
+Train GR against the augmented data:
+
+```bash
+cd /home/ricky/SpeechGR
+export CUDA_VISIBLE_DEVICES=1
+export PYTHON_BIN=.venv/bin/python
+bash run_gr_qg_augmented.sh
+```
+
 The Hub repo keeps only:
 
 ```text

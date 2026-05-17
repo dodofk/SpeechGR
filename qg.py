@@ -117,13 +117,24 @@ class QueryGenDataset(Dataset):
 
         self.split = split
         self.max_length = max_length
+        if self.max_length < 2:
+            raise ValueError(f"max_length must be at least 2, got {self.max_length}")
         self.code_path = resolve_unit_code_path(
             code_path,
             allow_patterns=PACKED_SLUE_PATTERNS,
         )
         self.special_token = special_token
         self.offset = offset
+        if not 0 <= self.offset < self.max_length:
+            raise ValueError(
+                "offset must be non-negative and smaller than max_length "
+                f"(got offset={self.offset}, max_length={self.max_length})"
+            )
         self.label_max_length = label_max_length
+        if self.label_max_length < 1:
+            raise ValueError(
+                f"label_max_length must be positive, got {self.label_max_length}"
+            )
         self.model_name_or_path = model_name_or_path
         self.pq_filename = pq_filename
         self.query_store = load_packed_store(
@@ -141,7 +152,21 @@ class QueryGenDataset(Dataset):
         self._build_code_lookup(lookup_file_name, lookup_values, dataset_path)
         self._build_data()
 
-        print("Info dataset length: ", len(self.data))
+        logger.info(
+            "Built QG %s dataset: rows=%d examples=%d truncated_queries=%d "
+            "chunked_docs=%d max_chunks_per_row=%d query_len_mean=%.1f "
+            "query_len_max=%d doc_len_mean=%.1f doc_len_max=%d",
+            self.split,
+            self.stats["rows"],
+            len(self.data),
+            self.stats["truncated_queries"],
+            self.stats["chunked_docs"],
+            self.stats["max_chunks_per_row"],
+            self.stats["query_len_mean"],
+            self.stats["query_len_max"],
+            self.stats["doc_len_mean"],
+            self.stats["doc_len_max"],
+        )
 
     def _load_query_code(self, qid: str) -> np.ndarray:
         if self.query_store is not None and qid in self.query_store:
@@ -186,25 +211,57 @@ class QueryGenDataset(Dataset):
         # invert lookup: original -> idx in [0,discrete_code_num)
         self.code_to_idx = {idx: orig for idx, orig in enumerate(self.code_lookup)}
 
+    def _map_unit_codes(
+        self,
+        code: np.ndarray,
+        *,
+        field_name: str,
+        item_id: str,
+    ) -> np.ndarray:
+        code = np.asarray(code, dtype=int).reshape(-1)
+        if code.size == 0:
+            raise ValueError(f"{field_name} {item_id} has no unit codes")
+
+        invalid = sorted(set(code.tolist()) - set(self.code_to_idx))
+        if invalid:
+            preview = invalid[:10]
+            raise ValueError(
+                f"{field_name} {item_id} contains unit ids outside "
+                f"[0, {self.discrete_code_num - 1}]: {preview}"
+            )
+        return np.asarray(
+            [self.code_to_idx[int(unit)] for unit in code],
+            dtype=np.int64,
+        )
+
     def _build_data(self):
-        # truncate to 512 for each doc
+        query_lengths = []
+        doc_lengths = []
+        truncated_queries = 0
+        chunked_docs = 0
+        max_chunks_per_row = 0
+
         for _, row in self.df.iterrows():
             qid = str(row["question_id"])
             did = str(row["document_id"])
 
             q_code = self._load_query_code(qid)
-            q_code = np.vectorize(self.code_to_idx.get)(q_code)
+            q_code = self._map_unit_codes(q_code, field_name="query", item_id=qid)
+            query_lengths.append(len(q_code))
             
             if len(q_code) > self.label_max_length:
                 q_code = q_code[:self.label_max_length]
+                truncated_queries += 1
                 
             q_seq = np.concatenate([q_code, [1]]) # as the length is not extreme strict, it could add 1 to the end
             
 
             d_code = self._load_document_code(did)
-            d_code = np.vectorize(self.code_to_idx.get)(d_code)
+            d_code = self._map_unit_codes(d_code, field_name="document", item_id=did)
+            doc_lengths.append(len(d_code))
 
             cur_idx = 0
+            chunks_for_row = 0
             while cur_idx < len(d_code):
                 end_idx = min(cur_idx + self.max_length - 1, len(d_code))
                 self.data.append(
@@ -216,6 +273,21 @@ class QueryGenDataset(Dataset):
                 # Ensure we don't go backwards or stay in the same place
                 step = max(1, self.max_length - self.offset)
                 cur_idx += step
+                chunks_for_row += 1
+            if chunks_for_row > 1:
+                chunked_docs += 1
+            max_chunks_per_row = max(max_chunks_per_row, chunks_for_row)
+
+        self.stats = {
+            "rows": len(self.df),
+            "truncated_queries": truncated_queries,
+            "chunked_docs": chunked_docs,
+            "max_chunks_per_row": max_chunks_per_row,
+            "query_len_mean": float(np.mean(query_lengths)) if query_lengths else 0.0,
+            "query_len_max": int(np.max(query_lengths)) if query_lengths else 0,
+            "doc_len_mean": float(np.mean(doc_lengths)) if doc_lengths else 0.0,
+            "doc_len_max": int(np.max(doc_lengths)) if doc_lengths else 0,
+        }
 
     def __len__(self):
         return len(self.data)
