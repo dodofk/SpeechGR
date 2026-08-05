@@ -1,0 +1,30 @@
+task: "QG-augmented GR training analysis"
+agent: "Codex"
+updated: "2026-05-19T09:46:39+08:00"
+
+objective: "Decide next research direction after QG-augmented GR plateau"
+status: review
+
+progress:
+  - "Stopped QG-augmented GR run on Joyboy"
+  - "Best QG-augmented checkpoint was checkpoint-75000 with Hits@20=0.1665807117"
+  - "Latest observed QG run did not approach target Hits@20/Recall@20=0.30-0.40"
+  - "Decision: current QG augmentation is not the main path because pseudo queries do not appear meaningfully aligned with retrieval"
+
+blockers: []
+
+next: "Pivot to matched original-only baseline, then identifier design and ranking-aware training instead of more unfiltered QG."
+
+metrics:
+  qg_aug_best_checkpoint: "/home/ricky/SpeechGR/models/slue_sqa5-flan-t5-base-GR-qgaug-unitpt50k-ckpt10000-s3-b18/checkpoint-75000"
+  qg_aug_best_hits20: 0.1665807117070655
+  target_hits20: "0.30-0.40"
+  checkpoint_count: 2
+  output_dir_size: "5.6G"
+
+context:
+  key_files:
+    - "run_gr_qg_augmented.sh"
+    - "run.sh"
+    - "qg.py"
+  note: "Do not spend next main effort on more pseudo-query volume; compare baseline and investigate structured IDs or ranking-aware objectives."

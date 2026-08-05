@@ -30,3 +30,7 @@ speech-content-encoder/hubert_22_km_2000
 eval_raw.json
 eval_results.json
 cache
+# large local artifacts (2026-08-05)
+data/
+tmp/
+output/

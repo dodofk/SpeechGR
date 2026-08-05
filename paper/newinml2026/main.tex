@@ -1,0 +1,69 @@
+\documentclass{article}
+
+\usepackage[dblblindworkshop]{neurips_2026}
+\workshoptitle{New In ML at NeurIPS 2026}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{hyperref}
+\usepackage{url}
+\usepackage{booktabs}
+\usepackage{amsmath}
+\usepackage{amsfonts}
+\usepackage{amssymb}
+\usepackage{graphicx}
+\usepackage{microtype}
+\usepackage{xcolor}
+\usepackage{multirow}
+\usepackage{tabularx}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta,backgrounds,fit,positioning}
+\hypersetup{hidelinks}
+
+\title{SpeechGR: Exploring End-to-End Textless Speech Generative Retrieval}
+
+% The review style replaces this block with anonymous author information.
+\author{Anonymous Author(s)}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+In the formulation studied here, generative retrieval (GR) retrieves by
+generating corpus identifiers rather than ranking stored document embeddings.
+Among the systems considered here, IRGen provides the closest structural
+analogue: a raw image generates a valid identifier for a relevant database
+image. GENIUS also accepts visual query content, but pairs each query with a
+natural-language task instruction and uses CLIP-based, contrastively aligned
+encoders. We study whether the same retrieval paradigm can operate over speech.
+In SLUE-SQA-5, relevance is directional: a spoken question is linked to
+an answer-containing spoken passage using text-retrieval and QA criteria rather
+than acoustic distance. SpeechGR quantizes questions
+and passages into discrete HuBERT units, adapts a Flan-T5 encoder--decoder, and
+generates valid passage identifiers with trie-constrained decoding rather than
+ANN search. It uses neither an intermediate ASR transcript nor a textual query
+instruction. On a 15,883-passage SLUE-SQA-5 collection, SpeechGR reaches
+5.81\% Hit@1 and 18.452\% Hit@20. Speech-unit span-corruption pretraining gives
+the strongest positive pattern, whereas the tested BPE, ranking-loss, and
+Q-Former variants score below their reported references. These results
+establish feasibility for spoken-question DocID generation. Because the
+benchmark is text-derived and the model remains text-pretrained, the experiment
+does not isolate semantic reasoning from lexical correspondence.
+\end{abstract}
+
+\input{sections/framing}
+
+\PaperIntroduction
+\PaperRelatedWork
+
+\input{sections/method}
+\input{sections/experiments}
+
+\PaperLimitations
+\PaperConclusion
+
+\bibliographystyle{plainnat}
+\bibliography{references}
+
+\end{document}

@@ -1,0 +1,211 @@
+\section{Experiments}
+\label{sec:experiments}
+
+\subsection{Experimental setup}
+
+\paragraph{Data and evaluation.}
+We use the speech-to-speech retrieval setting introduced by
+SpeechDPR~\citep{Lin2024SpeechDPRES}. Spoken questions come from SLUE-SQA-5
+and candidate passages are the linked Spoken Wikipedia recordings
+\citep{Shon2022SLUEPA}. The official train, validation, test, and
+verified-test splits contain 46,186, 1,939, 2,382, and 408 questions. The
+current SpeechGR metadata export contains 15,883 unique linked passages and
+100\% coverage of the test gold identifiers. Each query has one gold passage.
+We report Hit@1 and Hit@20, the percentage of queries for which that passage
+appears in the first one or twenty generated identifiers. The headline result
+uses the reported test split. The ablations are presented as development-stage
+experiments, but the evaluation split and shared pretraining setting are not
+recorded for every row. We therefore interpret them as comparisons among the
+stated configurations rather than repeated-run or test-set effects.
+
+The audio is natural, but the retrieval semantics are text-derived. Questions
+come from five text QA datasets and were read by crowd workers; candidate
+passages were paired using transcripts, answer-string matching, BM25,
+sentence-level text retrieval, and text QA models
+\citep{Shon2022SLUEPA}. Thus, relevance is answer-based rather than acoustic,
+but the construction may reward lexical overlap. This makes clean-text
+retrieval an important reference while preventing strong claims about
+speech-specific semantics or compositional reasoning.
+
+\paragraph{SpeechGR configuration.}
+The headline system uses Flan-T5-base, HuBERT-large layer 22, a \(K=500\)
+codebook, repetition collapse without BPE, ten epochs of span-corruption
+adaptation on 6k hours of LibriLight, cross-entropy training, and beam-20
+trie-constrained decoding
+\citep{10.5555/3722577.3722647,Hsu2021HuBERTSS,9052942}.
+The thesis conflicts on whether the \(k\)-means codebook was fitted on 100 or
+960 hours of LibriSpeech; we cannot resolve that provenance from the PDF.
+
+\paragraph{Comparisons.}
+We include a ground-truth-text BM25 reference on the same 15,883-passage
+metadata export used by SpeechGR. We also report SpeechDPR, BGE, CLSR, and
+WavRAG results from prior work rather than reproducing them
+\citep{Lin2024SpeechDPRES,hu2026clsr,chen-etal-2025-wavrag}. Their supervision,
+retrieval mechanism, and candidate sets differ. SpeechGR is index-free in the
+generative-retrieval sense: it uses no external document-embedding index or
+approximate-nearest-neighbor search.
+
+\begin{table*}[t]
+\centering
+\small
+\setlength{\tabcolsep}{4pt}
+\begin{tabularx}{\textwidth}{@{}l l >{\raggedright\arraybackslash}X l rrr@{}}
+\toprule
+Model & Query & Text-side signal & Retrieval / candidates & @1 & @10 & @20 \\
+\midrule
+\multicolumn{7}{@{}l}{\textit{Current 15,883-passage collection}} \\
+BM25$^\ast$ & gold text & query and passage transcripts & sparse / 15,883 & \textbf{12.72} & -- & \textbf{43.20} \\
+SpeechGR & speech & text-pretrained LM; no task text inputs & GR / 15,883 & 5.81 & -- & 18.452 \\
+\midrule
+\multicolumn{7}{@{}l}{\textit{Prior reported context; protocols are not matched}} \\
+SpeechDPR w/o KD$^\dagger$ & speech & no teacher KD & dense / \(\sim\)39k & -- & -- & 0.04 \\
+SpeechDPR with KD$^\dagger$ & speech & UASR + text-retriever KD & dense / \(\sim\)39k & -- & -- & 19.73 \\
+BGE clean text$^\dagger$ & gold text & query and passage text & dense / n.r. & 38.71 & 84.34 & -- \\
+CLSR$^\dagger$ & speech & ASR losses + frozen BGE space & dense / n.r. & 30.65 & 74.43 & -- \\
+WavRAG$^\dagger$ & speech & mixed-modal training incl.\ text/TTS & dense / n.r. & 33.92 & 72.21 & -- \\
+\bottomrule
+\end{tabularx}
+\caption{Test-set retrieval context in percent. With one labelled passage,
+Hit@\(k\) and Recall@\(k\) use the same success criterion, but the protocols
+and candidate pools differ. \(\ast\) Gold-text evaluation using
+\texttt{BM25Okapi} v0.2.2 (\(k_1=1.5,b=0.75,\epsilon=0.25\)) with lowercase
+alphanumeric tokenization. \(\dagger\) Values imported from prior work
+\citep{Lin2024SpeechDPRES,hu2026clsr,chen-etal-2025-wavrag}, not reproduced.
+``n.r.'' denotes a candidate-pool size not reported clearly enough for a
+matched comparison.}
+\label{tab:main-results}
+\end{table*}
+
+\subsection{Main results}
+
+SpeechGR obtains 5.81 Hit@1 and 18.452 Hit@20
+(Table~\ref{tab:main-results}). On the same 15,883 passages, the gold-text BM25
+reference reaches 12.72 Hit@1 and 43.20 Hit@20. It is not speech-input matched,
+but shows that the task strongly rewards lexical access. SpeechGR's non-zero
+result shows that discrete units retain enough information to learn some
+question-to-passage association; the text-derived evaluation cannot determine
+whether that association reflects compositional semantics or lexical matching.
+
+SpeechDPR's 19.73 Hit@20 is also not directly comparable: it uses
+text-retriever distillation, external dense passage search, and roughly 39k candidates
+rather than 15,883. Its 0.04 Hit@20 without distillation nevertheless isolates
+a striking dependence on text-retriever guidance in that system. SpeechGR's
+result should therefore be read as feasibility, not near-parity or a
+state-of-the-art claim.
+
+Recent systems widen the numerical context. CLSR reports 30.65 R@1 and 74.43
+R@10 after transcript-supervised ASR training and mapping speech into a frozen
+BGE representation space; WavRAG reports 33.92/72.21 after large-scale
+mixed-modality training. Because their candidate pools are under-specified,
+we do not compute gaps to SpeechGR. Their results are nevertheless consistent
+with the value of text-rich semantic supervision on this text-derived task.
+
+\begin{table*}[t]
+\centering
+\small
+\setlength{\tabcolsep}{5pt}
+\begin{tabular}{@{}cllcc@{}}
+\toprule
+Panel & HuBERT / pretraining setting & Compression & Hit@1 & Hit@20 \\
+\midrule
+\multicolumn{5}{@{}l}{\textit{A. Acoustic-unit design}} \\
+& layer 7, \(K=500\) & none & 1.20 & 6.00 \\
+& layer 22, \(K=128\) & none & \textbf{3.76} & 13.04 \\
+& layer 22, \(K=500\) & none & 3.61 & \textbf{14.189} \\
+& layer 22, \(K=1000\) & none & 3.44 & 12.72 \\
+& layer 22, \(K=500\) & BPE 1000 & 1.85 & 9.78 \\
+& layer 22, \(K=1000\) & BPE 2000 & 1.97 & 9.11 \\
+& layer 22, \(K=2000\) & BPE 6000 & 1.47 & 7.68 \\
+\midrule
+\multicolumn{5}{@{}l}{\textit{B. Speech-unit span-corruption pretraining}} \\
+& 0 epochs & -- & 3.61 & 14.189 \\
+& 3 epochs & -- & 4.54 & 15.73 \\
+& 10 epochs & -- & \textbf{5.81} & \textbf{18.452} \\
+\bottomrule
+\end{tabular}
+\caption{Core design study; values are percentages at their reported
+precision. The evaluation split is not recorded per ablation row, and the
+10-epoch value equals the headline test result. The records also do not
+identify which granularity runs omit speech-unit pretraining.}
+\label{tab:core-ablation}
+\end{table*}
+
+\subsection{What works and what does not}
+\label{sec:analysis}
+
+\paragraph{Acoustic units and BPE.}
+The reported unit rows ask whether later HuBERT representations and different
+codebook sizes yield more useful inputs. At \(K=500\), the layer-22 row scores
+above the layer-7 row: Hit@1 changes from 1.20 to 3.61 and Hit@20 from 6.00 to
+14.189; among the uncompressed layer-22 rows, \(K=128\) has the best Hit@1
+(3.76), whereas \(K=500\) has the best Hit@20 (14.189). Among these reported
+configurations, later-layer units are associated with higher scores, while
+codebook size trades top-rank and top-20 performance.
+
+BPE was tested under the hypothesis that shorter acoustic-token sequences
+would be easier for the encoder--decoder to process. In the matched \(K=500\)
+comparison, BPE lowers Hit@1/Hit@20 from 3.61/14.189 to 1.85/9.78; at
+\(K=1000\), it lowers them from 3.44/12.72 to 1.97/9.11. The tested BPE
+settings therefore score below their same-\(K\) no-BPE rows, so the final
+configuration omits BPE. The experiment does not isolate whether the
+difference comes from information loss, optimization, or an unresolved shared
+setting.
+
+\paragraph{Speech-unit pretraining.}
+Span-corruption pretraining tests whether unsupervised exposure can adapt the
+text-pretrained backbone to acoustic units before retrieval fine-tuning. The
+reported scores increase across 0, 3, and 10 epochs, from 3.61/14.189 to
+4.54/15.73 and 5.81/18.452. The full 0-to-10 difference is \(+2.20\) Hit@1
+and \(+4.263\) Hit@20. This is the strongest positive pattern in the report,
+but the unresolved per-row split and shared settings prevent a causal or
+test-set interpretation.
+
+\begin{table}[t]
+\centering
+\small
+\setlength{\tabcolsep}{5pt}
+\begin{tabular}{@{}lllcc@{}}
+\toprule
+Study & Configuration & Intervention & Hit@1 & Hit@20 \\
+\midrule
+Identifier & string identifier & multi-token corpus ID & 3.61 & \textbf{14.19} \\
+& atomic identifier & distinct unstructured ID & \textbf{4.54} & 13.69 \\
+\midrule
+Ranking loss & CE baseline & none & 3.61 & 14.189 \\
+& CE + ranking & pairwise margin, in-batch negatives & \(\Delta{\approx}{-}0.88\) & \(\Delta{\approx}{-}1.349\) \\
+\midrule
+Compression & no Q-Former & none & 3.61 & 14.189 \\
+& window Q-Former & \(L=17,\ Q=1\) & 2.73 & 12.584 \\
+\bottomrule
+\end{tabular}
+\caption{Secondary design studies; values are percentages. Each intervention
+is compared only with the baseline in the same reported subsection. The split
+and pretraining setting are not recorded per row. The ranking-loss row gives
+the reported approximate changes from its baseline, not reconstructed absolute
+scores.}
+\label{tab:secondary-ablation}
+\end{table}
+
+\paragraph{Identifier design.}
+Atomic identifiers test whether eliminating multi-token decoding errors helps
+retrieval. They increase Hit@1 from 3.61 to 4.54 but reduce Hit@20 from 14.19
+to 13.69 relative to string identifiers. Identifier choice is therefore a
+metric-dependent trade-off in this experiment, not a uniformly beneficial
+change; the final system retains strings to favor the top-20 metric.
+
+\paragraph{Ranking loss.}
+A pairwise margin objective with in-batch negatives was intended to align
+training more directly with ranking~\citep{Zeng2023ScalableAE,Sun2023LearningTT}.
+Relative to the 3.61/14.189 cross-entropy baseline, the report gives
+approximate decreases of 0.88 Hit@1 and 1.349 Hit@20, although convergence is
+reported as faster. Under this negative-sampling and weighting setup, the
+reported faster convergence does not accompany a higher final score, so the
+final system keeps cross-entropy alone.
+
+\paragraph{Windowed Q-Former.}
+The windowed Q-Former tests whether compressing long acoustic-token sequences
+before the T5 encoder improves retrieval~\citep{Pan2023COSMICDE,Tang2023SALMONNTG}.
+With window length \(17\) and one learned query, it lowers Hit@1/Hit@20 from
+3.61/14.189 to 2.73/12.584. This particular compression configuration scores
+below its reported baseline; whether the cause is information loss or
+insufficient optimization is not isolated by the experiment.

@@ -1,0 +1,133 @@
+\relax 
+\providecommand\hyper@newdestlabel[2]{}
+\providecommand\HyField@AuxAddToFields[1]{}
+\providecommand\HyField@AuxAddToCoFields[2]{}
+\citation{Tay2022TransformerMA,Li2024FromMT}
+\citation{Zhang2024IRGen}
+\citation{Kim2025GENIUSAG}
+\citation{Wang2023AVATARRV,Lin2024SpeechDPRES}
+\def\@LN@column{1}
+\@writefile{toc}{\contentsline {section}{\numberline {1}Introduction}{1}{section.1}\protected@file@percent }
+\newlabel{sec:introduction}{{1}{1}{Introduction}{section.1}{}}
+\citation{Hsu2021HuBERTSS,lakhotia-etal-2021-generative,lin22c_interspeech}
+\citation{Shon2022SLUEPA}
+\citation{Tay2022TransformerMA}
+\citation{Zhuang2022BridgingTG,Li2024FromMT,Kuo2024ASO}
+\citation{DeCao2020AutoregressiveER}
+\citation{li-etal-2024-generative,fang-etal-2025-cart,fang25c_interspeech}
+\citation{Zhang2024IRGen}
+\citation{Kim2025GENIUSAG}
+\citation{Wang2023AVATARRV}
+\citation{Baevski2021UnsupervisedSR,Lin2024SpeechDPRES}
+\citation{hu2026clsr}
+\citation{chen-etal-2025-wavrag}
+\citation{Heigold2025MSEB}
+\def\@LN@column{1}
+\@writefile{toc}{\contentsline {section}{\numberline {2}Related Work}{2}{section.2}\protected@file@percent }
+\newlabel{sec:related-work}{{2}{2}{Related Work}{section.2}{}}
+\@writefile{toc}{\contentsline {paragraph}{Generative retrieval.}{2}{section*.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Spoken retrieval.}{2}{section*.2}\protected@file@percent }
+\citation{Shon2022SLUEPA}
+\citation{chi-etal-2025-role}
+\citation{Hsu2021HuBERTSS}
+\citation{lakhotia-etal-2021-generative,lin22c_interspeech,Shon2024DiscreteSLUAL}
+\citation{Hsu2021HuBERTSS}
+\citation{Wang2024ACS}
+\def\@LN@column{1}
+\@writefile{toc}{\contentsline {paragraph}{Broader spoken-query benchmarks.}{3}{section*.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{A text-derived speech benchmark.}{3}{section*.4}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Discrete speech units.}{3}{section*.5}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {3}SpeechGR}{3}{section.3}\protected@file@percent }
+\newlabel{sec:method}{{3}{3}{SpeechGR}{section.3}{}}
+\@writefile{toc}{\contentsline {paragraph}{Task formulation.}{3}{section*.6}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {3.1}Discrete speech units}{3}{subsection.3.1}\protected@file@percent }
+\newlabel{sec:units}{{3.1}{3}{Discrete speech units}{subsection.3.1}{}}
+\newlabel{eq:quantization}{{1}{3}{Discrete speech units}{equation.1}{}}
+\citation{li-etal-2024-generative}
+\citation{10.5555/3722577.3722647}
+\citation{Raffel2019ExploringTL}
+\citation{Tay2022TransformerMA}
+\def\@LN@column{1}
+\@writefile{lof}{\contentsline {figure}{\numberline {1}{\ignorespaces \textbf  {SpeechGR overview.} A shared HuBERT--\(k\)-means preprocessor maps passages and queries to deduplicated acoustic units. Fine-tuning combines passage-to-DocID indexing examples and spoken-question-to-answer-passage-DocID retrieval examples. At inference, a trie masks invalid next-token continuations during beam search; it stores valid output prefixes, not document embeddings.}}{4}{figure.1}\protected@file@percent }
+\newlabel{fig:speechgr}{{1}{4}{\textbf {SpeechGR overview.} A shared HuBERT--\(k\)-means preprocessor maps passages and queries to deduplicated acoustic units. Fine-tuning combines passage-to-DocID indexing examples and spoken-question-to-answer-passage-DocID retrieval examples. At inference, a trie masks invalid next-token continuations during beam search; it stores valid output prefixes, not document embeddings}{figure.1}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {3.2}Identifiers and model adaptation}{4}{subsection.3.2}\protected@file@percent }
+\newlabel{sec:identifier-model}{{3.2}{4}{Identifiers and model adaptation}{subsection.3.2}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {3.3}Speech-unit pretraining}{4}{subsection.3.3}\protected@file@percent }
+\newlabel{sec:speech-pretraining}{{3.3}{4}{Speech-unit pretraining}{subsection.3.3}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {3.4}Joint indexing and retrieval training}{4}{subsection.3.4}\protected@file@percent }
+\newlabel{sec:training}{{3.4}{4}{Joint indexing and retrieval training}{subsection.3.4}{}}
+\newlabel{eq:ce}{{2}{4}{Joint indexing and retrieval training}{equation.2}{}}
+\citation{Lin2024SpeechDPRES}
+\citation{Shon2022SLUEPA}
+\citation{Shon2022SLUEPA}
+\citation{10.5555/3722577.3722647,Hsu2021HuBERTSS,9052942}
+\citation{Lin2024SpeechDPRES,hu2026clsr,chen-etal-2025-wavrag}
+\citation{Lin2024SpeechDPRES,hu2026clsr,chen-etal-2025-wavrag}
+\citation{Lin2024SpeechDPRES,hu2026clsr,chen-etal-2025-wavrag}
+\def\@LN@column{1}
+\@writefile{toc}{\contentsline {subsection}{\numberline {3.5}Constrained retrieval}{5}{subsection.3.5}\protected@file@percent }
+\newlabel{sec:decoding}{{3.5}{5}{Constrained retrieval}{subsection.3.5}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {4}Experiments}{5}{section.4}\protected@file@percent }
+\newlabel{sec:experiments}{{4}{5}{Experiments}{section.4}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.1}Experimental setup}{5}{subsection.4.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Data and evaluation.}{5}{section*.7}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{SpeechGR configuration.}{5}{section*.8}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Comparisons.}{5}{section*.9}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.2}Main results}{5}{subsection.4.2}\protected@file@percent }
+\def\@LN@column{1}
+\@writefile{lot}{\contentsline {table}{\numberline {1}{\ignorespaces Test-set retrieval context in percent. With one labelled passage, Hit@\(k\) and Recall@\(k\) use the same success criterion, but the protocols and candidate pools differ. \(\ast \) Gold-text evaluation using \texttt  {BM25Okapi} v0.2.2 (\(k_1=1.5,b=0.75,\epsilon =0.25\)) with lowercase alphanumeric tokenization. \(\dagger \) Values imported from prior work \citep  {Lin2024SpeechDPRES,hu2026clsr,chen-etal-2025-wavrag}, not reproduced. ``n.r.'' denotes a candidate-pool size not reported clearly enough for a matched comparison.}}{6}{table.1}\protected@file@percent }
+\newlabel{tab:main-results}{{1}{6}{Test-set retrieval context in percent. With one labelled passage, Hit@\(k\) and Recall@\(k\) use the same success criterion, but the protocols and candidate pools differ. \(\ast \) Gold-text evaluation using \texttt {BM25Okapi} v0.2.2 (\(k_1=1.5,b=0.75,\epsilon =0.25\)) with lowercase alphanumeric tokenization. \(\dagger \) Values imported from prior work \citep {Lin2024SpeechDPRES,hu2026clsr,chen-etal-2025-wavrag}, not reproduced. ``n.r.'' denotes a candidate-pool size not reported clearly enough for a matched comparison}{table.1}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {2}{\ignorespaces Core design study; values are percentages at their reported precision. The evaluation split is not recorded per ablation row, and the 10-epoch value equals the headline test result. The records also do not identify which granularity runs omit speech-unit pretraining.}}{6}{table.2}\protected@file@percent }
+\newlabel{tab:core-ablation}{{2}{6}{Core design study; values are percentages at their reported precision. The evaluation split is not recorded per ablation row, and the 10-epoch value equals the headline test result. The records also do not identify which granularity runs omit speech-unit pretraining}{table.2}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.3}What works and what does not}{6}{subsection.4.3}\protected@file@percent }
+\newlabel{sec:analysis}{{4.3}{6}{What works and what does not}{subsection.4.3}{}}
+\@writefile{toc}{\contentsline {paragraph}{Acoustic units and BPE.}{6}{section*.10}\protected@file@percent }
+\citation{Zeng2023ScalableAE,Sun2023LearningTT}
+\citation{Pan2023COSMICDE,Tang2023SALMONNTG}
+\def\@LN@column{1}
+\@writefile{lot}{\contentsline {table}{\numberline {3}{\ignorespaces Secondary design studies; values are percentages. Each intervention is compared only with the baseline in the same reported subsection. The split and pretraining setting are not recorded per row. The ranking-loss row gives the reported approximate changes from its baseline, not reconstructed absolute scores.}}{7}{table.3}\protected@file@percent }
+\newlabel{tab:secondary-ablation}{{3}{7}{Secondary design studies; values are percentages. Each intervention is compared only with the baseline in the same reported subsection. The split and pretraining setting are not recorded per row. The ranking-loss row gives the reported approximate changes from its baseline, not reconstructed absolute scores}{table.3}{}}
+\@writefile{toc}{\contentsline {paragraph}{Speech-unit pretraining.}{7}{section*.11}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Identifier design.}{7}{section*.12}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Ranking loss.}{7}{section*.13}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Windowed Q-Former.}{7}{section*.14}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {5}Limitations}{7}{section.5}\protected@file@percent }
+\newlabel{sec:limitations}{{5}{7}{Limitations}{section.5}{}}
+\bibstyle{plainnat}
+\bibdata{references}
+\bibcite{Baevski2021UnsupervisedSR}{{1}{2021}{{Baevski et~al.}}{{Baevski, Hsu, Conneau, and Auli}}}
+\bibcite{DeCao2020AutoregressiveER}{{2}{2020}{{Cao et~al.}}{{Cao, Izacard, Riedel, and Petroni}}}
+\bibcite{chen-etal-2025-wavrag}{{3}{2025}{{Chen et~al.}}{{Chen, Ji, Wang, Wang, Chen, He, Xu, and Zhao}}}
+\bibcite{chi-etal-2025-role}{{4}{2025}{{Chi et~al.}}{{Chi, de~Seyssel, and Schluter}}}
+\bibcite{10.5555/3722577.3722647}{{5}{2024}{{Chung et~al.}}{{Chung, Hou, Longpre, Zoph, Tai, Fedus, Li, Wang, Dehghani, Brahma, Webson, Gu, Dai, Suzgun, Chen, Chowdhery, Castro-Ros, Pellat, Robinson, Valter, Narang, Mishra, Yu, Zhao, Huang, Dai, Yu, Petrov, Chi, Dean, Devlin, Roberts, Zhou, Le, and Wei}}}
+\bibcite{fang25c_interspeech}{{6}{2025{a}}{{Fang et~al.}}{{Fang, Ji, Zuo, Cheng, Liu, Yang, Hu, Zhu, and Zhao}}}
+\bibcite{fang-etal-2025-cart}{{7}{2025{b}}{{Fang et~al.}}{{Fang, Ji, Zuo, Huang, Xia, Zhu, Cheng, Yang, Liu, Wang, Dong, and Zhao}}}
+\bibcite{Heigold2025MSEB}{{8}{2025}{{Heigold et~al.}}{{Heigold, Variani, Bagby, Allauzen, Ma, Kumar, and Riley}}}
+\def\@LN@column{1}
+\@writefile{toc}{\contentsline {section}{\numberline {6}Conclusion}{8}{section.6}\protected@file@percent }
+\newlabel{sec:conclusion}{{6}{8}{Conclusion}{section.6}{}}
+\bibcite{Hsu2021HuBERTSS}{{9}{2021}{{Hsu et~al.}}{{Hsu, Bolte, Tsai, Lakhotia, Salakhutdinov, and rahman Mohamed}}}
+\bibcite{hu2026clsr}{{10}{2026}{{Hu et~al.}}{{Hu, Li, Qi, Liu, and Wang}}}
+\bibcite{9052942}{{11}{2020}{{Kahn et~al.}}{{Kahn, Rivière, Zheng, Kharitonov, Xu, Mazaré, Karadayi, Liptchinsky, Collobert, Fuegen, Likhomanenko, Synnaeve, Joulin, Mohamed, and Dupoux}}}
+\bibcite{Kim2025GENIUSAG}{{12}{2025}{{Kim et~al.}}{{Kim, Zhu, Lin, Bastan, Gray, and Kwak}}}
+\bibcite{Kuo2024ASO}{{13}{2024}{{Kuo et~al.}}{{Kuo, Chiu, Lin, Wu, Huang, and Chen}}}
+\bibcite{lakhotia-etal-2021-generative}{{14}{2021}{{Lakhotia et~al.}}{{Lakhotia, Kharitonov, Hsu, Adi, Polyak, Bolte, Nguyen, Copet, Baevski, Mohamed, and Dupoux}}}
+\bibcite{Li2024FromMT}{{15}{2024{a}}{{Li et~al.}}{{Li, Jin, Zhou, Zhang, Zhang, Zhu, and Dou}}}
+\bibcite{li-etal-2024-generative}{{16}{2024{b}}{{Li et~al.}}{{Li, Wang, Qu, Nie, Li, and Chua}}}
+\bibcite{Lin2024SpeechDPRES}{{17}{2024}{{Lin et~al.}}{{Lin, Lin, Chuang, Wu, Li, Mohamed, Lee, and Lee}}}
+\bibcite{lin22c_interspeech}{{18}{2022}{{Lin et~al.}}{{Lin, Chuang, Chung, wen Yang, Chen, Dong, Li, Mohamed, yi~Lee, and shan Lee}}}
+\bibcite{Pan2023COSMICDE}{{19}{2023}{{Pan et~al.}}{{Pan, Wu, Gaur, Sivasankaran, Chen, Liu, and Li}}}
+\bibcite{Raffel2019ExploringTL}{{20}{2020}{{Raffel et~al.}}{{Raffel, Shazeer, Roberts, Lee, Narang, Matena, Zhou, Li, and Liu}}}
+\def\@LN@column{1}
+\bibcite{Shon2022SLUEPA}{{21}{2023}{{Shon et~al.}}{{Shon, Arora, Lin, Pasad, Wu, Sharma, Wu, yi~Lee, Livescu, and Watanabe}}}
+\bibcite{Shon2024DiscreteSLUAL}{{22}{2024}{{Shon et~al.}}{{Shon, Kim, Hsu, Sridhar, Watanabe, and Livescu}}}
+\bibcite{Sun2023LearningTT}{{23}{2023}{{Sun et~al.}}{{Sun, Yan, Chen, Wang, Zhu, Ren, Chen, Yin, de~Rijke, and Ren}}}
+\bibcite{Tang2023SALMONNTG}{{24}{2023}{{Tang et~al.}}{{Tang, Yu, Sun, Chen, Tan, Li, Lu, Ma, and Zhang}}}
+\bibcite{Tay2022TransformerMA}{{25}{2022}{{Tay et~al.}}{{Tay, Tran, Dehghani, Ni, Bahri, Mehta, Qin, Hui, Zhao, Gupta, Schuster, Cohen, and Metzler}}}
+\bibcite{Wang2024ACS}{{26}{2024}{{Wang et~al.}}{{Wang, Cui, Yang, Chen, and Meng}}}
+\bibcite{Wang2023AVATARRV}{{27}{2023}{{Wang et~al.}}{{Wang, Yang, Wang, Yan, and Chen}}}
+\bibcite{Zeng2023ScalableAE}{{28}{2023}{{Zeng et~al.}}{{Zeng, Luo, Jin, Sarwar, Wei, and Zamani}}}
+\bibcite{Zhang2024IRGen}{{29}{2024}{{Zhang et~al.}}{{Zhang, Zhang, Chen, Wang, Chen, Xie, Sun, Deng, Zhang, Yang, Yang, Liao, Wang, and Guo}}}
+\bibcite{Zhuang2022BridgingTG}{{30}{2022}{{Zhuang et~al.}}{{Zhuang, Ren, Shou, Pei, Gong, Zuccon, and Jiang}}}
+\def\@LN@column{1}
+\gdef \@abspage@last{10}

@@ -1,0 +1,297 @@
+\begin{thebibliography}{30}
+\providecommand{\natexlab}[1]{#1}
+\providecommand{\url}[1]{\texttt{#1}}
+\expandafter\ifx\csname urlstyle\endcsname\relax
+  \providecommand{\doi}[1]{doi: #1}\else
+  \providecommand{\doi}{doi: \begingroup \urlstyle{rm}\Url}\fi
+
+\bibitem[Baevski et~al.(2021)Baevski, Hsu, Conneau, and
+  Auli]{Baevski2021UnsupervisedSR}
+Alexei Baevski, Wei-Ning Hsu, Alexis Conneau, and Michael Auli.
+\newblock Unsupervised speech recognition.
+\newblock \emph{ArXiv}, abs/2105.11084, 2021.
+\newblock URL \url{https://api.semanticscholar.org/CorpusID:235166144}.
+
+\bibitem[Cao et~al.(2020)Cao, Izacard, Riedel, and
+  Petroni]{DeCao2020AutoregressiveER}
+Nicola~De Cao, Gautier Izacard, Sebastian Riedel, and Fabio Petroni.
+\newblock Autoregressive entity retrieval.
+\newblock \emph{ArXiv}, abs/2010.00904, 2020.
+\newblock URL \url{https://api.semanticscholar.org/CorpusID:222125277}.
+
+\bibitem[Chen et~al.(2025)Chen, Ji, Wang, Wang, Chen, He, Xu, and
+  Zhao]{chen-etal-2025-wavrag}
+Yifu Chen, Shengpeng Ji, Haoxiao Wang, Ziqing Wang, Siyu Chen, Jinzheng He, Jin
+  Xu, and Zhou Zhao.
+\newblock {WavRAG}: Audio-integrated retrieval augmented generation for spoken
+  dialogue models.
+\newblock In \emph{Proceedings of the 63rd Annual Meeting of the Association
+  for Computational Linguistics (Volume 1: Long Papers)}, pages 12505--12523.
+  Association for Computational Linguistics, 2025.
+\newblock \doi{10.18653/v1/2025.acl-long.613}.
+\newblock URL \url{https://aclanthology.org/2025.acl-long.613/}.
+
+\bibitem[Chi et~al.(2025)Chi, de~Seyssel, and Schluter]{chi-etal-2025-role}
+Jie Chi, Maureen de~Seyssel, and Natalie Schluter.
+\newblock The role of prosody in spoken question answering.
+\newblock In \emph{Findings of the Association for Computational Linguistics:
+  NAACL 2025}, pages 8483--8494. Association for Computational Linguistics,
+  2025.
+\newblock \doi{10.18653/v1/2025.findings-naacl.471}.
+\newblock URL \url{https://aclanthology.org/2025.findings-naacl.471/}.
+
+\bibitem[Chung et~al.(2024)Chung, Hou, Longpre, Zoph, Tai, Fedus, Li, Wang,
+  Dehghani, Brahma, Webson, Gu, Dai, Suzgun, Chen, Chowdhery, Castro-Ros,
+  Pellat, Robinson, Valter, Narang, Mishra, Yu, Zhao, Huang, Dai, Yu, Petrov,
+  Chi, Dean, Devlin, Roberts, Zhou, Le, and Wei]{10.5555/3722577.3722647}
+Hyung~Won Chung, Le~Hou, Shayne Longpre, Barret Zoph, Yi~Tai, William Fedus,
+  Yunxuan Li, Xuezhi Wang, Mostafa Dehghani, Siddhartha Brahma, Albert Webson,
+  Shixiang~Shane Gu, Zhuyun Dai, Mirac Suzgun, Xinyun Chen, Aakanksha
+  Chowdhery, Alex Castro-Ros, Marie Pellat, Kevin Robinson, Dasha Valter,
+  Sharan Narang, Gaurav Mishra, Adams Yu, Vincent Zhao, Yanping Huang, Andrew
+  Dai, Hongkun Yu, Slav Petrov, Ed~H. Chi, Jeff Dean, Jacob Devlin, Adam
+  Roberts, Denny Zhou, Quoc~V. Le, and Jason Wei.
+\newblock Scaling instruction-finetuned language models.
+\newblock \emph{J. Mach. Learn. Res.}, 25\penalty0 (1), January 2024.
+\newblock ISSN 1532-4435.
+
+\bibitem[Fang et~al.(2025{\natexlab{a}})Fang, Ji, Zuo, Cheng, Liu, Yang, Hu,
+  Zhu, and Zhao]{fang25c_interspeech}
+Minghui Fang, Shengpeng Ji, Jialong Zuo, Xize Cheng, Wenrui Liu, Xiaoda Yang,
+  Ruofan Hu, Jieming Zhu, and Zhou Zhao.
+\newblock {GTA}: Towards generative text-to-audio retrieval via multi-scale
+  tokenizer.
+\newblock In \emph{Interspeech 2025}, pages 2650--2654, 2025{\natexlab{a}}.
+\newblock \doi{10.21437/Interspeech.2025-908}.
+
+\bibitem[Fang et~al.(2025{\natexlab{b}})Fang, Ji, Zuo, Huang, Xia, Zhu, Cheng,
+  Yang, Liu, Wang, Dong, and Zhao]{fang-etal-2025-cart}
+Minghui Fang, Shengpeng Ji, Jialong Zuo, Hai Huang, Yan Xia, Jieming Zhu, Xize
+  Cheng, Xiaoda Yang, Wenrui Liu, Gang Wang, Zhenhua Dong, and Zhou Zhao.
+\newblock {CART}: A generative cross-modal retrieval framework with
+  coarse-to-fine semantic modeling.
+\newblock In \emph{Proceedings of the 63rd Annual Meeting of the Association
+  for Computational Linguistics (Volume 1: Long Papers)}, pages 15120--15133.
+  Association for Computational Linguistics, 2025{\natexlab{b}}.
+\newblock \doi{10.18653/v1/2025.acl-long.735}.
+\newblock URL \url{https://aclanthology.org/2025.acl-long.735/}.
+
+\bibitem[Heigold et~al.(2025)Heigold, Variani, Bagby, Allauzen, Ma, Kumar, and
+  Riley]{Heigold2025MSEB}
+Georg Heigold, Ehsan Variani, Tom Bagby, Cyril Allauzen, Ji~Ma, Shankar Kumar,
+  and Michael~D. Riley.
+\newblock Massive sound embedding benchmark ({MSEB}).
+\newblock In \emph{Advances in Neural Information Processing Systems 38:
+  Datasets and Benchmarks Track}, 2025.
+\newblock URL \url{https://openreview.net/forum?id=X0juYgFVng}.
+
+\bibitem[Hsu et~al.(2021)Hsu, Bolte, Tsai, Lakhotia, Salakhutdinov, and rahman
+  Mohamed]{Hsu2021HuBERTSS}
+Wei-Ning Hsu, Benjamin Bolte, Yao-Hung~Hubert Tsai, Kushal Lakhotia, Ruslan
+  Salakhutdinov, and Abdel rahman Mohamed.
+\newblock Hubert: Self-supervised speech representation learning by masked
+  prediction of hidden units.
+\newblock \emph{IEEE/ACM Transactions on Audio, Speech, and Language
+  Processing}, 29:\penalty0 3451--3460, 2021.
+\newblock URL \url{https://api.semanticscholar.org/CorpusID:235421619}.
+
+\bibitem[Hu et~al.(2026)Hu, Li, Qi, Liu, and Wang]{hu2026clsr}
+Jiliang Hu, Zuchao Li, Baoyuan Qi, Guoming Liu, and Ping Wang.
+\newblock End-to-end contrastive language-speech pretraining model for
+  long-form spoken question answering.
+\newblock \emph{Proceedings of the AAAI Conference on Artificial Intelligence},
+  40\penalty0 (37):\penalty0 31041--31049, 2026.
+\newblock \doi{10.1609/aaai.v40i37.40364}.
+\newblock URL \url{https://ojs.aaai.org/index.php/AAAI/article/view/40364}.
+
+\bibitem[Kahn et~al.(2020)Kahn, Rivière, Zheng, Kharitonov, Xu, Mazaré,
+  Karadayi, Liptchinsky, Collobert, Fuegen, Likhomanenko, Synnaeve, Joulin,
+  Mohamed, and Dupoux]{9052942}
+J.~Kahn, M.~Rivière, W.~Zheng, E.~Kharitonov, Q.~Xu, P.E. Mazaré,
+  J.~Karadayi, V.~Liptchinsky, R.~Collobert, C.~Fuegen, T.~Likhomanenko,
+  G.~Synnaeve, A.~Joulin, A.~Mohamed, and E.~Dupoux.
+\newblock Libri-light: A benchmark for asr with limited or no supervision.
+\newblock In \emph{ICASSP 2020 - 2020 IEEE International Conference on
+  Acoustics, Speech and Signal Processing (ICASSP)}, pages 7669--7673, 2020.
+\newblock \doi{10.1109/ICASSP40776.2020.9052942}.
+
+\bibitem[Kim et~al.(2025)Kim, Zhu, Lin, Bastan, Gray, and
+  Kwak]{Kim2025GENIUSAG}
+Sungyeon Kim, Xinliang Zhu, Xiaofan Lin, Muhammet Bastan, Douglas Gray, and
+  Suha Kwak.
+\newblock {GENIUS}: A generative framework for universal multimodal search.
+\newblock In \emph{Proceedings of the IEEE/CVF Conference on Computer Vision
+  and Pattern Recognition}, pages 19659--19669, 2025.
+\newblock URL
+  \url{https://openaccess.thecvf.com/content/CVPR2025/html/Kim_GENIUS_A_Generative_Framework_for_Universal_Multimodal_Search_CVPR_2025_paper.html}.
+
+\bibitem[Kuo et~al.(2024)Kuo, Chiu, Lin, Wu, Huang, and Chen]{Kuo2024ASO}
+Tzu-Lin Kuo, Tzu-Wei Chiu, Tzung-Sheng Lin, Sheng-Yang Wu, Chao-Wei Huang, and
+  Yun-Nung Chen.
+\newblock A survey of generative information retrieval.
+\newblock \emph{ArXiv}, abs/2406.01197, 2024.
+\newblock URL \url{https://api.semanticscholar.org/CorpusID:270214302}.
+
+\bibitem[Lakhotia et~al.(2021)Lakhotia, Kharitonov, Hsu, Adi, Polyak, Bolte,
+  Nguyen, Copet, Baevski, Mohamed, and Dupoux]{lakhotia-etal-2021-generative}
+Kushal Lakhotia, Eugene Kharitonov, Wei-Ning Hsu, Yossi Adi, Adam Polyak,
+  Benjamin Bolte, Tu-Anh Nguyen, Jade Copet, Alexei Baevski, Abdelrahman
+  Mohamed, and Emmanuel Dupoux.
+\newblock On generative spoken language modeling from raw audio.
+\newblock \emph{Transactions of the Association for Computational Linguistics},
+  9:\penalty0 1336--1354, 2021.
+\newblock \doi{10.1162/tacl_a_00430}.
+\newblock URL \url{https://aclanthology.org/2021.tacl-1.79/}.
+
+\bibitem[Li et~al.(2024{\natexlab{a}})Li, Jin, Zhou, Zhang, Zhang, Zhu, and
+  Dou]{Li2024FromMT}
+Xiaoxi Li, Jiajie Jin, Yujia Zhou, Yuyao Zhang, Peitian Zhang, Yutao Zhu, and
+  Zhicheng Dou.
+\newblock From matching to generation: A survey on generative information
+  retrieval.
+\newblock \emph{ACM Transactions on Information Systems}, 43:\penalty0 1 -- 62,
+  2024{\natexlab{a}}.
+\newblock URL \url{https://api.semanticscholar.org/CorpusID:269303210}.
+
+\bibitem[Li et~al.(2024{\natexlab{b}})Li, Wang, Qu, Nie, Li, and
+  Chua]{li-etal-2024-generative}
+Yongqi Li, Wenjie Wang, Leigang Qu, Liqiang Nie, Wenjie Li, and Tat-Seng Chua.
+\newblock Generative cross-modal retrieval: Memorizing images in multimodal
+  language models for retrieval and beyond.
+\newblock In Lun-Wei Ku, Andre Martins, and Vivek Srikumar, editors,
+  \emph{Proceedings of the 62nd Annual Meeting of the Association for
+  Computational Linguistics (Volume 1: Long Papers)}, pages 11851--11861,
+  Bangkok, Thailand, August 2024{\natexlab{b}}. Association for Computational
+  Linguistics.
+\newblock \doi{10.18653/v1/2024.acl-long.639}.
+\newblock URL \url{https://aclanthology.org/2024.acl-long.639/}.
+
+\bibitem[Lin et~al.(2024)Lin, Lin, Chuang, Wu, Li, Mohamed, Lee, and
+  Lee]{Lin2024SpeechDPRES}
+Chyi-Jiunn Lin, Guan-Ting Lin, Yung-Sung Chuang, Wei-Lun Wu, Shang-Wen Li,
+  Abdelrahman Mohamed, Hung-Yi Lee, and Lin-Shan Lee.
+\newblock Speechdpr: End-to-end spoken passage retrieval for open-domain spoken
+  question answering.
+\newblock In \emph{ICASSP 2024 - 2024 IEEE International Conference on
+  Acoustics, Speech and Signal Processing (ICASSP)}, pages 12476--12480, 2024.
+\newblock \doi{10.1109/ICASSP48485.2024.10448210}.
+
+\bibitem[Lin et~al.(2022)Lin, Chuang, Chung, wen Yang, Chen, Dong, Li, Mohamed,
+  yi~Lee, and shan Lee]{lin22c_interspeech}
+Guan-Ting Lin, Yung-Sung Chuang, Ho-Lam Chung, Shu wen Yang, Hsuan-Jui Chen,
+  Shuyan~Annie Dong, Shang-Wen Li, Abdelrahman Mohamed, Hung yi~Lee, and Lin
+  shan Lee.
+\newblock {DUAL: Discrete Spoken Unit Adaptive Learning for Textless Spoken
+  Question Answering}.
+\newblock In \emph{Proc. Interspeech 2022}, pages 5165--5169, 2022.
+\newblock \doi{10.21437/Interspeech.2022-612}.
+
+\bibitem[Pan et~al.(2023)Pan, Wu, Gaur, Sivasankaran, Chen, Liu, and
+  Li]{Pan2023COSMICDE}
+Jing Pan, Jian Wu, Yashesh Gaur, Sunit Sivasankaran, Zhuo Chen, Shujie Liu, and
+  Jinyu Li.
+\newblock Cosmic: Data efficient instruction-tuning for speech in-context
+  learning.
+\newblock \emph{ArXiv}, abs/2311.02248, 2023.
+\newblock URL \url{https://api.semanticscholar.org/CorpusID:265034072}.
+
+\bibitem[Raffel et~al.(2020)Raffel, Shazeer, Roberts, Lee, Narang, Matena,
+  Zhou, Li, and Liu]{Raffel2019ExploringTL}
+Colin Raffel, Noam Shazeer, Adam Roberts, Katherine Lee, Sharan Narang, Michael
+  Matena, Yanqi Zhou, Wei Li, and Peter~J. Liu.
+\newblock Exploring the limits of transfer learning with a unified text-to-text
+  transformer.
+\newblock \emph{J. Mach. Learn. Res.}, 21\penalty0 (1), January 2020.
+\newblock ISSN 1532-4435.
+
+\bibitem[Shon et~al.(2023)Shon, Arora, Lin, Pasad, Wu, Sharma, Wu, yi~Lee,
+  Livescu, and Watanabe]{Shon2022SLUEPA}
+Suwon Shon, Siddhant Arora, Chyi-Jiunn Lin, Ankita Pasad, Felix Wu, Roshan
+  Sharma, Wei-Lun Wu, Hung yi~Lee, Karen Livescu, and Shinji Watanabe.
+\newblock Slue phase-2: A benchmark suite of diverse spoken language
+  understanding tasks.
+\newblock In \emph{Proceedings of the 61st Annual Meeting of the Association
+  for Computational Linguistics (Volume 1: Long Papers)}, pages 8906--8937.
+  Association for Computational Linguistics, 2023.
+\newblock \doi{10.18653/v1/2023.acl-long.496}.
+\newblock URL \url{https://aclanthology.org/2023.acl-long.496/}.
+
+\bibitem[Shon et~al.(2024)Shon, Kim, Hsu, Sridhar, Watanabe, and
+  Livescu]{Shon2024DiscreteSLUAL}
+Suwon Shon, Kwangyoun Kim, Yi-Te Hsu, Prashant Sridhar, Shinji Watanabe, and
+  Karen Livescu.
+\newblock Discreteslu: A large language model with self-supervised discrete
+  speech units for spoken language understanding.
+\newblock \emph{ArXiv}, abs/2406.09345, 2024.
+\newblock URL \url{https://api.semanticscholar.org/CorpusID:270440402}.
+
+\bibitem[Sun et~al.(2023)Sun, Yan, Chen, Wang, Zhu, Ren, Chen, Yin, de~Rijke,
+  and Ren]{Sun2023LearningTT}
+Weiwei Sun, Lingyong Yan, Zheng Chen, Shuaiqiang Wang, Haichao Zhu, Pengjie
+  Ren, Zhumin Chen, Dawei Yin, M.~de~Rijke, and Zhaochun Ren.
+\newblock Learning to tokenize for generative retrieval.
+\newblock \emph{ArXiv}, abs/2304.04171, 2023.
+\newblock URL \url{https://api.semanticscholar.org/CorpusID:258048596}.
+
+\bibitem[Tang et~al.(2023)Tang, Yu, Sun, Chen, Tan, Li, Lu, Ma, and
+  Zhang]{Tang2023SALMONNTG}
+Changli Tang, Wenyi Yu, Guangzhi Sun, Xianzhao Chen, Tian Tan, Wei Li, Lu~Lu,
+  Zejun Ma, and Chao Zhang.
+\newblock Salmonn: Towards generic hearing abilities for large language models.
+\newblock \emph{ArXiv}, abs/2310.13289, 2023.
+\newblock URL \url{https://api.semanticscholar.org/CorpusID:264406171}.
+
+\bibitem[Tay et~al.(2022)Tay, Tran, Dehghani, Ni, Bahri, Mehta, Qin, Hui, Zhao,
+  Gupta, Schuster, Cohen, and Metzler]{Tay2022TransformerMA}
+Yi~Tay, Vinh~Q. Tran, Mostafa Dehghani, Jianmo Ni, Dara Bahri, Harsh Mehta,
+  Zhen Qin, Kai Hui, Zhe Zhao, Jai Gupta, Tal Schuster, William~W. Cohen, and
+  Donald Metzler.
+\newblock Transformer memory as a differentiable search index.
+\newblock In \emph{Proceedings of the 36th International Conference on Neural
+  Information Processing Systems}, NIPS '22, Red Hook, NY, USA, 2022. Curran
+  Associates Inc.
+\newblock ISBN 9781713871088.
+
+\bibitem[Wang et~al.(2024)Wang, Cui, Yang, Chen, and Meng]{Wang2024ACS}
+Dingdong Wang, Mingyu Cui, Dongchao Yang, Xueyuan Chen, and Helen~M. Meng.
+\newblock A comparative study of discrete speech tokens for semantic-related
+  tasks with large language models.
+\newblock \emph{ArXiv}, abs/2411.08742, 2024.
+\newblock URL \url{https://api.semanticscholar.org/CorpusID:273993219}.
+
+\bibitem[Wang et~al.(2023)Wang, Yang, Wang, Yan, and Chen]{Wang2023AVATARRV}
+Yi-Cheng Wang, Tzu-Ting Yang, Hsin-Wei Wang, Bi-Cheng Yan, and Berlin Chen.
+\newblock Avatar: Robust voice search engine leveraging autoregressive document
+  retrieval and contrastive learning.
+\newblock \emph{2023 Asia Pacific Signal and Information Processing Association
+  Annual Summit and Conference (APSIPA ASC)}, pages 2331--2335, 2023.
+\newblock URL \url{https://api.semanticscholar.org/CorpusID:261531457}.
+
+\bibitem[Zeng et~al.(2023)Zeng, Luo, Jin, Sarwar, Wei, and
+  Zamani]{Zeng2023ScalableAE}
+Hansi Zeng, Chen Luo, Bowen Jin, Sheikh~Muhammad Sarwar, Tianxin Wei, and Hamed
+  Zamani.
+\newblock Scalable and effective generative information retrieval.
+\newblock \emph{Proceedings of the ACM Web Conference 2024}, 2023.
+\newblock URL \url{https://api.semanticscholar.org/CorpusID:265213270}.
+
+\bibitem[Zhang et~al.(2024)Zhang, Zhang, Chen, Wang, Chen, Xie, Sun, Deng,
+  Zhang, Yang, Yang, Liao, Wang, and Guo]{Zhang2024IRGen}
+Yidan Zhang, Ting Zhang, Dong Chen, Yujing Wang, Qi~Chen, Xing Xie, Hao Sun,
+  Weiwei Deng, Qi~Zhang, Fan Yang, Mao Yang, Qingmin Liao, Jingdong Wang, and
+  Baining Guo.
+\newblock {IRGen}: Generative modeling for image retrieval.
+\newblock In \emph{Computer Vision -- ECCV 2024}, pages 21--41, 2024.
+\newblock URL
+  \url{https://www.ecva.net/papers/eccv_2024/papers_ECCV/papers/02265.pdf}.
+
+\bibitem[Zhuang et~al.(2022)Zhuang, Ren, Shou, Pei, Gong, Zuccon, and
+  Jiang]{Zhuang2022BridgingTG}
+Shengyao Zhuang, Houxing Ren, Linjun Shou, Jian Pei, Ming Gong, G.~Zuccon, and
+  Daxin Jiang.
+\newblock Bridging the gap between indexing and retrieval for differentiable
+  search index with query generation.
+\newblock \emph{ArXiv}, abs/2206.10128, 2022.
+\newblock URL \url{https://api.semanticscholar.org/CorpusID:249890267}.
+
+\end{thebibliography}

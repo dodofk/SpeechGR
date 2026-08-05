@@ -1,0 +1,83 @@
+\begin{figure}[t]
+    \centering
+    \resizebox{\linewidth}{!}{%
+    \begin{tikzpicture}[
+        font=\small,
+        >=Latex,
+        flow/.style={-{Latex[length=2.2mm]}, line width=0.7pt},
+        audio/.style={draw=blue!65!black, fill=blue!8, rounded corners=2pt,
+            minimum height=7mm, align=center},
+        units/.style={draw=teal!65!black, fill=teal!8, rounded corners=2pt,
+            minimum height=7mm, align=center},
+        model/.style={draw=orange!75!black, fill=orange!10, rounded corners=2pt,
+            minimum height=9mm, align=center},
+        output/.style={draw=red!65!black, fill=red!7, rounded corners=2pt,
+            minimum height=7mm, align=center},
+        constraint/.style={draw=purple!65!black, fill=purple!7,
+            rounded corners=2pt, minimum height=7mm, align=center}
+    ]
+        % Shared acoustic tokenizer.
+        \node[audio, minimum width=18mm] (wave) at (0,3.4) {waveform\\\(a\)};
+        \node[audio, minimum width=22mm] (hubert) at (2.5,3.4) {HuBERT\\layer \(\ell\)};
+        \node[units, minimum width=22mm] (kmeans) at (5.2,3.4) {\(k\)-means\\codebook \(K\)};
+        \node[units, minimum width=22mm] (dedup) at (7.9,3.4) {collapse\\repetitions};
+        \node[units, minimum width=18mm] (useq) at (10.4,3.4) {units\\\(\mathbf{u}(a)\)};
+        \draw[flow] (wave) -- (hubert);
+        \draw[flow] (hubert) -- (kmeans);
+        \draw[flow] (kmeans) -- (dedup);
+        \draw[flow] (dedup) -- (useq);
+
+        % Fine-tuning: indexing and retrieval examples share parameters.
+        \node[audio, minimum width=17mm] (passage) at (0,1.75)
+            {passage \(p_i\)};
+        \node[units, minimum width=16mm] (pu) at (2.0,1.75)
+            {\(\mathbf{u}(p_i)\)};
+        \node[audio, minimum width=17mm] (query) at (0,0.65)
+            {question \(q_j\)};
+        \node[units, minimum width=16mm] (qu) at (2.0,0.65)
+            {\(\mathbf{u}(q_j)\)};
+        \node[model, minimum width=21mm] (t5) at (4.3,1.2)
+            {shared\\Flan-T5};
+        \node[output, minimum width=20mm] (target) at (6.7,1.2)
+            {target DocID\\\(y_i\) or \(y_{t(j)}\)};
+        \draw[flow] (passage) -- (pu);
+        \draw[flow] (query) -- (qu);
+        \draw[flow] (pu) -- (t5);
+        \draw[flow] (qu) -- (t5);
+        \draw[flow] (t5) -- (target);
+
+        % Inference: the trie constrains decoder scores, not a gold target.
+        \node[units, minimum width=16mm] (infq) at (8.8,1.2)
+            {\(\mathbf{u}(q)\)};
+        \node[model, minimum width=21mm] (decoder) at (10.9,1.2)
+            {Flan-T5\\decoder};
+        \node[output, minimum width=23mm] (generated) at (13.5,1.2)
+            {generated\\DocID};
+        \node[constraint, minimum width=22mm] (trie) at (10.9,0.05)
+            {valid-DocID trie};
+        \draw[flow] (infq) -- (decoder);
+        \draw[flow] (decoder) -- (generated);
+        \draw[flow, dashed] (trie) -- node[right, font=\scriptsize]
+            {valid next tokens} (decoder);
+
+        \begin{scope}[on background layer]
+            \node[draw=gray!55, rounded corners=3pt, inner sep=5pt,
+                fit=(wave)(hubert)(kmeans)(dedup)(useq),
+                label={[font=\scriptsize]above:shared acoustic tokenizer}] {};
+            \node[draw=gray!55, rounded corners=3pt, inner sep=5pt,
+                fit=(passage)(query)(pu)(qu)(t5)(target),
+                label={[font=\scriptsize]above:fine-tuning}] {};
+            \node[draw=gray!55, rounded corners=3pt, inner sep=5pt,
+                fit=(infq)(decoder)(generated)(trie),
+                label={[font=\scriptsize]above:inference}] {};
+        \end{scope}
+    \end{tikzpicture}%
+    }
+    \caption{\textbf{SpeechGR overview.} A shared HuBERT--\(k\)-means
+    preprocessor maps passages and queries to deduplicated acoustic units.
+    Fine-tuning combines passage-to-DocID indexing examples and
+    spoken-question-to-answer-passage-DocID retrieval examples. At inference, a trie masks
+    invalid next-token continuations during beam search; it stores valid output
+    prefixes, not document embeddings.}
+    \label{fig:speechgr}
+\end{figure}

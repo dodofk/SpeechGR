@@ -1,0 +1,187 @@
+\newcommand{\PaperIntroduction}{%
+\section{Introduction}
+\label{sec:introduction}
+
+Generative retrieval (GR) learns to produce a document identifier (DocID) from
+a query rather than searching stored document embeddings
+\citep{Tay2022TransformerMA,Li2024FromMT}. Among the systems considered here,
+IRGen provides the closest structural precedent for a non-text query: a query
+image is encoded and a valid database-image identifier is generated
+autoregressively
+\citep{Zhang2024IRGen}. Its task is same-modality image retrieval, with
+relevance defined by shared dataset class labels. GENIUS broadens GR to
+text, image, and image--text query content, but each query is conditioned on a
+natural-language task instruction and embedded through CLIP-based
+vision--language alignment \citep{Kim2025GENIUSAG}. These results establish
+non-text-query GR in vision, but not direct spoken-query identifier generation.
+
+The QA retrieval setting introduces a different relevance relation. A spoken
+question is paired with a passage because the passage contains the answer, not
+because the two recordings are acoustically similar. They may differ in
+speaker, duration, wording, and recording conditions. The resulting mapping is
+asymmetric: question \(\rightarrow\) answer-containing passage. Spoken retrieval
+usually handles this abstraction through ASR followed by text retrieval, or
+through dense representations searched in an external vector index
+\citep{Wang2023AVATARRV,Lin2024SpeechDPRES}. The former inherits transcription
+errors and imposes a text interface; the latter retains embedding search. We
+therefore ask: \emph{can a generative retriever map a spoken question directly
+to an answer-containing spoken passage when relevance is not defined by acoustic
+similarity and no intermediate transcript is available?}
+
+Discrete speech units make this question compatible with sequence models by
+turning audio into token sequences without transcribing it
+\citep{Hsu2021HuBERTSS,lakhotia-etal-2021-generative,lin22c_interspeech}. The
+retriever generates a DocID without querying an external document-embedding
+index or performing ANN search. A prefix trie restricts decoding to valid
+DocIDs; it is an output constraint rather than a dense retrieval index.
+
+We study \textbf{SpeechGR}, which quantizes spoken questions and passages into
+discrete acoustic units and trains a Flan-T5 encoder--decoder to generate the
+identifier of an answer-containing passage. The model learns jointly from
+passage-to-DocID indexing examples and spoken-query-to-DocID retrieval examples,
+and its model inputs consume neither query/passage transcripts nor a textual
+query instruction during SpeechGR training or inference. Flan-T5 nevertheless
+contributes text pretraining. On the English SLUE-SQA-5 benchmark
+\citep{Shon2022SLUEPA},
+SpeechGR obtains 5.81 Hit@1 and 18.452 Hit@20 over the 15,883 passages in the
+current data export. Speech-unit pretraining provides the strongest positive
+experimental pattern, while BPE compression, pairwise ranking loss, and a
+windowed Q-Former do not improve their reported references. Gold-text and prior
+speech retrievers are reported only as contextual evidence because their
+inputs, supervision, mechanisms, or candidate pools differ.
+
+This work makes three contributions:
+\begin{itemize}
+    \item We study spoken-question generative passage retrieval, in which a
+    spoken question generates the identifier of its linked answer-containing
+    passage; relevance labels are not based on acoustic similarity.
+    \item We develop SpeechGR, which maps discrete speech units to valid
+    passage identifiers without consuming task transcripts or textual query
+    instructions and retrieves without dense ANN search.
+    \item We establish feasibility on a 15,883-passage SLUE-SQA-5 collection
+    and report scoped evidence on acoustic units, speech pretraining,
+    identifier design, and compression and ranking variants that did not help.
+\end{itemize}
+}
+
+\newcommand{\PaperRelatedWork}{%
+\section{Related Work}
+\label{sec:related-work}
+
+\paragraph{Generative retrieval.}
+In the standard formulation used here, GR replaces nearest-neighbor search
+with autoregressive DocID generation. DSI established the parameterized-index
+formulation \citep{Tay2022TransformerMA}; later work studies identifier design,
+query generation, and retrieval training
+\citep{Zhuang2022BridgingTG,Li2024FromMT,Kuo2024ASO}. Valid-identifier tries
+commonly constrain decoding \citep{DeCao2020AutoregressiveER}. Cross-modal GR
+generates identifiers for image, audio, and video targets from text queries
+\citep{li-etal-2024-generative,fang-etal-2025-cart,
+fang25c_interspeech}. IRGen instead maps a raw image to codes for neighboring
+images, learns retrieval-specific visual identifiers, and evaluates up to
+million-scale collections \citep{Zhang2024IRGen}. It is structurally analogous
+to SpeechGR, but evaluates same-modality image retrieval using shared class
+labels.
+GENIUS accepts visual query content, yet also supplies a textual task
+instruction and uses a CLIP-aligned multimodal encoder
+\citep{Kim2025GENIUSAG}. SpeechGR instead studies speech-only query content and
+an asymmetric question-to-passage relation; its task inputs include neither a
+transcript nor a natural-language retrieval instruction.
+
+\paragraph{Spoken retrieval.}
+ASR-based pipelines expose downstream retrieval to transcription errors;
+AVATAR explicitly studies robustness to such noise
+\citep{Wang2023AVATARRV}. SpeechDPR instead learns speech representations for a
+dense retriever and distills semantics from an unsupervised ASR model and a
+text retriever \citep{Baevski2021UnsupervisedSR,Lin2024SpeechDPRES}. SpeechGR
+complements these systems with an ASR-free mapping from a spoken question to an
+answer-containing passage DocID rather than using external dense passage
+search. Recent dense retrievers report substantially higher SLUE-SQA-5 recall
+while importing
+strong text-side structure. CLSR optimizes ASR objectives and maps speech to
+text-like representations consumed by a frozen BGE encoder
+\citep{hu2026clsr}. WavRAG adapts an audio-language model on roughly 1.5
+million mixed-modality retrieval examples, including text retrieval corpora
+and TTS-derived speech \citep{chen-etal-2025-wavrag}. Their reported candidate
+pools are not specified well enough to match SpeechGR's evaluation, but their
+training signals clarify that transcription-free inference does not imply
+text-independent retrieval learning.
+
+\paragraph{Broader spoken-query benchmarks.}
+The Massive Sound Embedding Benchmark (MSEB) introduces Simple Voice Questions
+(SVQ), with more than 170k short spoken queries across 26 locales, 17
+languages, and four recording conditions. It covers document, passage, and span
+retrieval in both in-language and cross-language settings
+\citep{Heigold2025MSEB}. Its recordings are readings of XTREME-UP text prompts
+and query a textual Wikipedia index. SVQ therefore broadens multilingual and
+acoustic-condition coverage, but remains speech-to-text retrieval rather than
+speech-to-speech generative DocID retrieval.
+
+\paragraph{A text-derived speech benchmark.}
+SLUE-SQA-5 uses natural recordings, but derives questions from five text QA
+datasets and pairs passages through transcript-side matching and retrieval
+\citep{Shon2022SLUEPA}. Models also rely predominantly on lexical information
+when lexical and prosodic cues coexist \citep{chi-etal-2025-role}. We therefore
+treat it as a natural-speech realization of a lexically defined retrieval
+problem, not a test that isolates speech-specific semantics.
+
+\paragraph{Discrete speech units.}
+Self-supervised speech encoders such as HuBERT can be clustered into discrete
+units \citep{Hsu2021HuBERTSS}. Such units support generative spoken-language
+modeling and downstream spoken understanding without requiring transcripts as
+model inputs \citep{lakhotia-etal-2021-generative,lin22c_interspeech,
+Shon2024DiscreteSLUAL}. We use them as the input vocabulary of a generative
+retriever and examine how layer choice, codebook size, and sequence compression
+affect retrieval.
+}
+
+\newcommand{\PaperLimitations}{%
+\section{Limitations}
+\label{sec:limitations}
+
+The evidence is limited to English SLUE-SQA-5 and its linked Spoken Wikipedia
+collection, so it does not establish multilingual performance, effectiveness
+for unwritten languages, or scaling behavior on substantially larger
+collections. The results also do not establish semantic reasoning. SLUE-SQA-5
+is derived from text QA data and
+transcript-based passage selection, so lexical correspondence may account for
+part of the observed retrieval. Controlled paraphrase, low-overlap, and
+acoustic-distractor evaluations would be needed to separate semantic mapping
+from lexical pattern matching. SpeechGR is task-transcript-free rather than
+text-independent: Flan-T5 is text-pretrained and the identifiers are
+metadata-derived. IRGen and GENIUS are structural, not numerical, comparators:
+class-based image retrieval, instruction-conditioned multimodal search, and
+question-to-passage retrieval use different relevance labels and scales. The comparison with
+SpeechDPR is neither supervision- nor candidate-pool-matched: SpeechGR uses
+15,883 paired passages, whereas SpeechDPR reports retrieval over roughly 39k
+Spoken Wikipedia segments. The CLSR and WavRAG candidate pools are
+under-specified, and all of their values are imported rather than reproduced.
+The gold-text BM25 reference uses one fixed tokenizer and parameter setting and
+is not a sparse-retrieval sensitivity study.
+The thesis does not report repeated runs, confidence intervals, or significance
+tests.
+The experimental record also does not preserve the per-ablation split and shared
+pretraining setting, input-truncation policy, indexing/retrieval sampling
+ratio, optimization hyperparameters, or completed-beam scoring needed for
+exact reproduction; it is internally inconsistent about whether the
+\(k\)-means codebook used 100 or 960 hours of LibriSpeech. Small differences
+should therefore be interpreted cautiously. Finally, the experiments do not
+evaluate corpus updates or retraining cost when passages change.
+}
+
+\newcommand{\PaperConclusion}{%
+\section{Conclusion}
+\label{sec:conclusion}
+
+SpeechGR transfers the identifier-generation structure used in visual
+retrieval to an asymmetric spoken task: a spoken question generates the DocID
+of an answer-containing spoken passage. It uses no task transcript, textual query
+instruction, or external document-embedding index. Its 5.81 Hit@1 and 18.452
+Hit@20 on 15,883 SLUE-SQA-5 passages establish feasibility rather than parity
+with text-guided retrieval. Speech-unit pretraining gives the strongest
+positive pattern; the tested BPE, ranking-loss, and Q-Former variants do not.
+Because the benchmark is text-derived, these results show learnable
+question-to-passage associations but do not isolate semantic reasoning from
+lexical matching. That distinction is the central challenge for future spoken
+generative retrieval.
+}

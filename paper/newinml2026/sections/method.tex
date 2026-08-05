@@ -1,0 +1,137 @@
+\section{SpeechGR}
+\label{sec:method}
+
+\paragraph{Task formulation.}
+Let \(\mathcal{C}=\{(p_i,y_i)\}_{i=1}^{N}\) be a corpus of spoken
+passages, where \(p_i\) is an audio segment and \(y_i\) is its unique
+document identifier (DocID). Let
+\(\mathcal{Q}=\{(q_j,t(j))\}_{j=1}^{M}\) map each spoken query \(q_j\) to its
+gold passage \(p_{t(j)}\). SpeechGR learns an encoder--decoder model
+\(P_\theta(y\mid \mathbf{u}(q))\) and ranks passages by the probability of their
+identifiers. Both queries and passages are represented as acoustic tokens.
+The SLUE-SQA-5 relevance relation differs from IRGen's same-modality image
+task: the gold passage is labelled because its transcript contains information
+that answers the question, not because the query and passage recordings are
+acoustically similar. SpeechGR is therefore trained to predict a directed
+question-to-passage association rather than an acoustically similar recording.
+Because SLUE-SQA-5 is text-derived, the experiment cannot determine how much
+of this association reflects semantic reasoning rather than lexical
+correspondence. Unlike IRGen's learned visual codes, SpeechGR generates
+corpus-provided metadata DocIDs; their question-to-passage associations are
+learned through the joint indexing and retrieval paths below.
+
+We use \emph{end-to-end} for the ASR-free retrieval path from speech units to
+DocIDs, not for joint optimization of the frozen HuBERT--\(k\)-means frontend
+with the retriever. We use \emph{textless} for task inputs: SpeechGR's
+acoustic-unit adaptation, retrieval fine-tuning, and inference do not consume
+query or passage transcripts or a natural-language retrieval instruction.
+Flan-T5 is nevertheless text-pretrained, and the DocIDs are metadata-derived
+strings. We call this setup
+\emph{index-free} in the standard generative-retrieval sense: inference does
+not store passage embeddings or perform approximate nearest-neighbour (ANN)
+search.  The valid-DocID trie used during decoding is an output constraint,
+not an embedding index or similarity-search structure.
+
+\input{sections/overview_figure}
+
+\subsection{Discrete speech units}
+\label{sec:units}
+
+Given an audio waveform \(a\), a pretrained HuBERT encoder
+\citep{Hsu2021HuBERTSS} produces frame representations
+\(\mathbf{z}_{1:T}\), with \(\mathbf{z}_t\in\mathbb{R}^{d}\).  We quantize
+each frame using a \(k\)-means codebook
+\(\mathcal{K}=\{\mathbf{c}_1,\ldots,\mathbf{c}_K\}\):
+\begin{equation}
+    u_t=\arg\min_{j\in\{1,\ldots,K\}}
+    \lVert\mathbf{z}_t-\mathbf{c}_j\rVert_2^2 .
+    \label{eq:quantization}
+\end{equation}
+This yields the discrete sequence
+\(\mathbf{u}(a)=(u_1,\ldots,u_T)\).  Consecutive repetitions are collapsed,
+so a run \(u_t=\cdots=u_{t+r}\) contributes one token.  This removes much of
+the frame-rate redundancy without requiring a transcript.  We also test byte
+pair encoding (BPE), following prior acoustic-unit work
+\citep{Wang2024ACS}, as an optional second compression stage that merges
+frequent adjacent units.  BPE is an ablation rather than part of the final
+SpeechGR pipeline. Section~\ref{sec:analysis} reports the two same-\(K\)
+comparisons available in the experiment record. The final reported
+configuration uses HuBERT-large layer~22, \(K=500\), and deduplication without
+BPE.
+
+\subsection{Identifiers and model adaptation}
+\label{sec:identifier-model}
+
+The main identifier design uses the corpus-provided DocIDs.  These are short
+character strings that encode corpus metadata, such as an article prefix and
+sentence offset, and are tokenized into output sequences by the model
+tokenizer.  We additionally study unstructured atomic identifiers, assigning
+one distinct identifier to each passage, as an ablation motivated by
+non-text generative retrieval \citep{li-etal-2024-generative}.  The main
+system retains the corpus-provided string identifiers because they give the
+better Hit@20 in our experiments.
+
+SpeechGR uses Flan-T5-base \citep{10.5555/3722577.3722647} as its
+encoder--decoder backbone.  To accept the acoustic sequence
+\(\mathbf{u}(a)\), we expand its vocabulary with one entry per discrete unit.
+Each added embedding is initialized by copying the vector of an unused token
+in the original text vocabulary and remains trainable thereafter.  The
+pretrained text vocabulary is retained for sentinel symbols and DocID
+generation.
+
+\subsection{Speech-unit pretraining}
+\label{sec:speech-pretraining}
+
+Before retrieval training, we adapt the expanded model to acoustic-token
+sequences using the T5 span-corruption objective
+\citep{Raffel2019ExploringTL}.  On a 6,000-hour subset of LibriLight, 15\% of
+the units are grouped into contiguous spans and replaced by distinct sentinel
+tokens; the decoder reconstructs the removed spans in order.  The final model
+uses ten epochs of this pretraining.  Importantly, this stage adapts the
+expanded encoder--decoder to discrete speech units; it does
+\emph{not} teach the model the target Spoken Wikipedia passage-to-DocID
+mapping.  Those corpus associations are learned only in the next stage.
+
+\subsection{Joint indexing and retrieval training}
+\label{sec:training}
+
+Retrieval training combines two kinds of sequence-to-sequence examples,
+following the two roles of a generative retriever
+\citep{Tay2022TransformerMA}.  The \emph{indexing path} maps each spoken
+passage to its own identifier,
+\[
+    \mathbf{u}(p_i)\longrightarrow y_i ,
+\]
+thereby associating corpus content with a DocID in the model parameters.  The
+\emph{retrieval path} maps a spoken query to the identifier of its labelled
+passage,
+\[
+    \mathbf{u}(q_j)\longrightarrow y_{t(j)} .
+\]
+Both paths use the same discrete-unit preprocessing and update the shared
+Flan-T5 encoder--decoder on longer passage inputs and shorter query inputs.
+For either training pair
+\((\mathbf{x},\mathbf{y})\), where
+\(\mathbf{y}=(y_1,\ldots,y_L)\), SpeechGR minimizes token-level
+cross-entropy:
+\begin{equation}
+    \mathcal{L}_{\mathrm{CE}}(\mathbf{x},\mathbf{y})
+    =-\sum_{\ell=1}^{L}
+    \log P_\theta(y_\ell\mid y_{<\ell},\mathbf{x}) .
+    \label{eq:ce}
+\end{equation}
+The paper's ranking-loss and windowed Q-Former variants are evaluated
+separately in Section~\ref{sec:analysis}; neither is used in the final method.
+
+\subsection{Constrained retrieval}
+\label{sec:decoding}
+
+At inference, SpeechGR converts only the spoken query to discrete units and
+generates a DocID autoregressively.  We build a trie from the tokenized DocIDs
+of all passages in \(\mathcal{C}\).  At every decoding step, tokens that do not
+extend the current prefix along a trie edge are masked; completed hypotheses
+therefore correspond to valid corpus passages.  Beam search retains the 20
+highest-scoring prefixes, and completed beams give the ranked retrieval list.
+This constraint prevents invalid identifiers but does not compare the query
+against stored passage vectors, preserving the index-free GR formulation
+defined above.
